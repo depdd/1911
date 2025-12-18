@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="32" height="32">
+  <!-- 背景圆 -->
+  <circle cx="256" cy="256" r="240" fill="#0a0e1a" stroke="#1e90ff" stroke-width="16"/>
+  <!-- 上升趋势线 -->
+  <path d="M100,350 L200,250 L300,200 L412,150" stroke="#00ff88" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <!-- 交易图标 -->
+  <g transform="translate(256, 256) scale(0.8)">
+    <rect x="-80" y="-40" width="160" height="80" rx="10" fill="#1a1f3a" stroke="#1e90ff" stroke-width="8"/>
+    <polygon points="-30,-20 30,-20 0,20" fill="#00ff88"/>
+  </g>
+</svg>

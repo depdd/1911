@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>外汇量化交易平台 - Forex Quantitative Trading Platform</title>
+    <meta name="description" content="专业的外汇量化交易平台，支持MT5连接、实时行情、策略交易、数据分析等功能">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Animation Libraries are now imported via npm packages -->
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0a0e1a 0%, #1a1f3a 100%);
+            color: #ffffff;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        /* Header */
+        .header {
+            padding: 20px 0;
+            background: rgba(10, 14, 26, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+        }
+        
+        .nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            color: #00d4ff;
+            text-decoration: none;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 30px;
+            list-style: none;
+        }
+        
+        .nav-links a {
+            color: #ffffff;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+        
+        .nav-links a:hover {
+            color: #00d4ff;
+        }
+        
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 30% 70%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 30%, rgba(139, 92, 246, 0.1) 0%, transparent 50%);
+        }
+        
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            max-width: 800px;
+            padding: 0 20px;
+        }
+        
+        .hero-title {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 700;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #00d4ff 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .hero-subtitle {
+            font-size: 1.25rem;
+            color: #e5e7eb;
+            margin-bottom: 40px;
+            line-height: 1.6;
+        }
+        
+        .hero-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff 0%, #8b5cf6 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 212, 255, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(26, 31, 58, 0.8);
+            color: #00d4ff;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: #00d4ff;
+        }
+        
+        /* Features Section */
+        .features {
+            padding: 100px 0;
+            background: rgba(26, 31, 58, 0.3);
+        }
+        
+        .section-title {
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 60px;
+            color: #ffffff;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 60px;
+        }
+        
+        .feature-card {
+            background: rgba(26, 31, 58, 0.6);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: #00d4ff;
+            box-shadow: 0 10px 30px rgba(0, 212, 255, 0.2);
+        }
+        
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #00d4ff 0%, #8b5cf6 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 24px;
+            color: white;
+        }
+        
+        .feature-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #ffffff;
+        }
+        
+        .feature-description {
+            color: #e5e7eb;
+            line-height: 1.6;
+        }
+        
+        /* Tech Stack Section */
+        .tech-stack {
+            padding: 100px 0;
+        }
+        
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+            margin-top: 60px;
+        }
+        
+        .tech-category {
+            text-align: center;
+        }
+        
+        .tech-category h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #00d4ff;
+        }
+        
+        .tech-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .tech-item {
+            padding: 10px 20px;
+            background: rgba(26, 31, 58, 0.4);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 6px;
+            color: #e5e7eb;
+            transition: all 0.3s ease;
+        }
+        
+        .tech-item:hover {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: #00d4ff;
+        }
+        
+        /* Getting Started Section */
+        .getting-started {
+            padding: 100px 0;
+            background: rgba(26, 31, 58, 0.3);
+        }
+        
+        .steps-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            margin-top: 60px;
+        }
+        
+        .step {
+            text-align: center;
+            padding: 40px 30px;
+            background: rgba(26, 31, 58, 0.6);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 12px;
+            position: relative;
+        }
+        
+        .step-number {
+            position: absolute;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 30px;
+            height: 30px;
+            background: linear-gradient(135deg, #00d4ff 0%, #8b5cf6 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: white;
+        }
+        
+        .step h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #ffffff;
+        }
+        
+        .step p {
+            color: #e5e7eb;
+            line-height: 1.6;
+        }
+        
+        /* Footer */
+        .footer {
+            padding: 60px 0 30px;
+            background: rgba(10, 14, 26, 0.9);
+            border-top: 1px solid rgba(0, 212, 255, 0.2);
+        }
+        
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+        
+        .footer-section h4 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #00d4ff;
+        }
+        
+        .footer-section p,
+        .footer-section li {
+            color: #e5e7eb;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+        
+        .footer-section ul {
+            list-style: none;
+        }
+        
+        .footer-section a {
+            color: #e5e7eb;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        
+        .footer-section a:hover {
+            color: #00d4ff;
+        }
+        
+        .footer-bottom {
+            text-align: center;
+            padding-top: 30px;
+            border-top: 1px solid rgba(0, 212, 255, 0.2);
+            color: #9ca3af;
+        }
+        
+        /* Animations */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            animation: fadeInUp 1s ease-out forwards;
+        }
+        
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.7;
+            }
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            
+            .hero-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .features-grid,
+            .tech-grid,
+            .steps-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .footer-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+        }
+        
+        /* Loading Animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0, 212, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #00d4ff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <nav class="nav">
+                <a href="#" class="logo">FX 量化交易</a>
+                <ul class="nav-links">
+                    <li><a href="#features">功能特性</a></li>
+                    <li><a href="#tech-stack">技术栈</a></li>
+                    <li><a href="#getting-started">快速开始</a></li>
+                    <li><a href="#docs">文档</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-background"></div>
+        <div class="hero-content fade-in">
+            <h1 class="hero-title">外汇量化交易平台</h1>
+            <p class="hero-subtitle">
+                专业的外汇量化交易平台，支持MT5连接、实时行情、智能策略交易、
+                数据分析等全方位功能，助您在金融市场中获得竞争优势
+            </p>
+            <div class="hero-buttons">
+                <a href="frontend/" class="btn btn-primary">
+                    🚀 立即体验
+                </a>
+                <a href="docs/" class="btn btn-secondary">
+                    📖 查看文档
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <h2 class="section-title fade-in">核心功能特性</h2>
+            <div class="features-grid">
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">📊</div>
+                    <h3 class="feature-title">实时数据监控</h3>
+                    <p class="feature-description">
+                        通过WebSocket实时推送账户信息、持仓状态、市场行情，
+                        毫秒级数据更新确保交易决策的及时性
+                    </p>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">📈</div>
+                    <h3 class="feature-title">专业K线图表</h3>
+                    <p class="feature-description">
+                        集成TradingView图表库，支持多时间周期、技术指标叠加、
+                        专业绘图工具，提供机构级图表体验
+                    </p>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">⚡</div>
+                    <h3 class="feature-title">智能快速交易</h3>
+                    <p class="feature-description">
+                        一键下单、快速平仓、批量操作，支持市价单、限价单、
+                        止损止盈设置，让交易更加高效便捷
+                    </p>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">🤖</div>
+                    <h3 class="feature-title">量化策略系统</h3>
+                    <p class="feature-description">
+                        内置多种经典交易策略，支持自定义策略开发，
+                        参数优化、回测验证，实现自动化交易
+                    </p>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">📊</div>
+                    <h3 class="feature-title">深度数据分析</h3>
+                    <p class="feature-description">
+                        胜率分析、盈亏统计、风险指标计算、资金曲线绘制，
+                        全方位评估交易表现和风险状况
+                    </p>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">🎨</div>
+                    <h3 class="feature-title">未来魔幻界面</h3>
+                    <p class="feature-description">
+                        深色主题配合霓虹蓝配色，流畅的动画效果，
+                        科技感十足的界面设计，提供沉浸式交易体验
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tech Stack Section -->
+    <section id="tech-stack" class="tech-stack">
+        <div class="container">
+            <h2 class="section-title fade-in">技术栈</h2>
+            <div class="tech-grid">
+                <div class="tech-category fade-in">
+                    <h3>后端技术</h3>
+                    <div class="tech-list">
+                        <div class="tech-item">Flask 2.3.3</div>
+                        <div class="tech-item">SQLAlchemy 2.0.23</div>
+                        <div class="tech-item">PostgreSQL</div>
+                        <div class="tech-item">Redis 5.0.1</div>
+                        <div class="tech-item">WebSocket</div>
+                        <div class="tech-item">MetaTrader5</div>
+                        <div class="tech-item">Pandas</div>
+                        <div class="tech-item">Loguru</div>
+                    </div>
+                </div>
+                
+                <div class="tech-category fade-in">
+                    <h3>前端技术</h3>
+                    <div class="tech-list">
+                        <div class="tech-item">React 18</div>
+                        <div class="tech-item">TypeScript 5.0</div>
+                        <div class="tech-item">Ant Design 5.8</div>
+                        <div class="tech-item">Styled-Components</div>
+                        <div class="tech-item">Lightweight Charts</div>
+                        <div class="tech-item">WebSocket</div>
+                        <div class="tech-item">Zustand</div>
+                        <div class="tech-item">Vite</div>
+                    </div>
+                </div>
+                
+                <div class="tech-category fade-in">
+                    <h3>部署技术</h3>
+                    <div class="tech-list">
+                        <div class="tech-item">Nginx</div>
+                        <div class="tech-item">Gunicorn</div>
+                        <div class="tech-item">Docker</div>
+                        <div class="tech-item">PM2</div>
+                        <div class="tech-item">Git</div>
+                        <div class="tech-item">Linux</div>
+                        <div class="tech-item">Let's Encrypt</div>
+                        <div class="tech-item">Prometheus</div>
+                    </div>
+                </div>
+                
+                <div class="tech-category fade-in">
+                    <h3>策略算法</h3>
+                    <div class="tech-list">
+                        <div class="tech-item">移动平均线交叉</div>
+                        <div class="tech-item">RSI超买超卖</div>
+                        <div class="tech-item">布林带突破</div>
+                        <div class="tech-item">MACD指标</div>
+                        <div class="tech-item">KDJ随机指标</div>
+                        <div class="tech-item">斐波那契回撤</div>
+                        <div class="tech-item">支撑阻力位</div>
+                        <div class="tech-item">量价分析</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Getting Started Section -->
+    <section id="getting-started" class="getting-started">
+        <div class="container">
+            <h2 class="section-title fade-in">快速开始</h2>
+            <div class="steps-container">
+                <div class="step fade-in">
+                    <div class="step-number">1</div>
+                    <h3>环境准备</h3>
+                    <p>确保系统已安装 Python 3.8+、Node.js 16+、PostgreSQL 12+ 和 Redis 6+</p>
+                </div>
+                
+                <div class="step fade-in">
+                    <div class="step-number">2</div>
+                    <h3>克隆项目</h3>
+                    <p>从Git仓库克隆项目代码到本地开发环境</p>
+                </div>
+                
+                <div class="step fade-in">
+                    <div class="step-number">3</div>
+                    <h3>安装依赖</h3>
+                    <p>运行安装脚本自动安装前后端依赖包和配置文件</p>
+                </div>
+                
+                <div class="step fade-in">
+                    <div class="step-number">4</div>
+                    <h3>启动服务</h3>
+                    <p>执行启动脚本，启动后端API和前端应用服务</p>
+                </div>
+                
+                <div class="step fade-in">
+                    <div class="step-number">5</div>
+                    <h3>连接MT5</h3>
+                    <p>在平台界面输入MT5账户信息，建立交易连接</p>
+                </div>
+                
+                <div class="step fade-in">
+                    <div class="step-number">6</div>
+                    <h3>开始交易</h3>
+                    <p>浏览实时行情，选择交易策略，开始您的量化交易之旅</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>项目信息</h4>
+                    <p>外汇量化交易平台是一个开源的金融科技项目，旨在为交易者提供专业、可靠的量化交易解决方案。</p>
+                </div>
+                
+                <div class="footer-section">
+                    <h4>快速链接</h4>
+                    <ul>
+                        <li><a href="frontend/">交易平台</a></li>
+                        <li><a href="docs/API.md">API文档</a></li>
+                        <li><a href="docs/DEPLOYMENT.md">部署指南</a></li>
+                        <li><a href="docs/USER_GUIDE.md">用户手册</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-section">
+                    <h4>技术特性</h4>
+                    <ul>
+                        <li>实时数据推送</li>
+                        <li>专业图表分析</li>
+                        <li>智能策略交易</li>
+                        <li>风险控制管理</li>
+                    </ul>
+                </div>
+                
+                <div class="footer-section">
+                    <h4>联系我们</h4>
+                    <p>如有问题或建议，请通过以下方式联系我们：</p>
+                    <ul>
+                        <li>Email: support@forex-trading.com</li>
+                        <li>Github: forex-trading-platform</li>
+                        <li>Discord: Forex Trading Community</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="footer-bottom">
+                <p>&copy; 2024 外汇量化交易平台. 保留所有权利. | 本项目仅供学习和研究使用</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // 初始化动画
+        document.addEventListener('DOMContentLoaded', function() {
+            // 滚动动画
+            const observerOptions = {
+                threshold: 0.1,
+                rootMargin: '0px 0px -50px 0px'
+            };
+
+            const observer = new IntersectionObserver(function(entries) {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.animationDelay = '0.1s';
+                        entry.target.classList.add('fade-in');
+                    }
+                });
+            }, observerOptions);
+
+            // 观察所有需要动画的元素
+            document.querySelectorAll('.feature-card, .tech-category, .step').forEach(el => {
+                observer.observe(el);
+            });
+
+            // 平滑滚动
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
+                    }
+                });
+            });
+
+            // 添加加载动画
+            const loadingElements = document.querySelectorAll('.btn');
+            loadingElements.forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    if (this.href && !this.href.startsWith('#')) {
+                        const originalText = this.innerHTML;
+                        this.innerHTML = '<div class="loading"></div> 加载中...';
+                        this.style.pointerEvents = 'none';
+                        
+                        setTimeout(() => {
+                            this.innerHTML = originalText;
+                            this.style.pointerEvents = 'auto';
+                        }, 2000);
+                    }
+                });
+            });
+        });
+
+        // 背景动画效果
+        function createFloatingElements() {
+            const hero = document.querySelector('.hero-background');
+            
+            for (let i = 0; i < 20; i++) {
+                const element = document.createElement('div');
+                element.style.cssText = `
+                    position: absolute;
+                    width: ${Math.random() * 4 + 2}px;
+                    height: ${Math.random() * 4 + 2}px;
+                    background: rgba(0, 212, 255, ${Math.random() * 0.5 + 0.1});
+                    border-radius: 50%;
+                    left: ${Math.random() * 100}%;
+                    top: ${Math.random() * 100}%;
+                    animation: float ${Math.random() * 20 + 10}s infinite linear;
+                `;
+                hero.appendChild(element);
+            }
+        }
+
+        // 添加浮动动画
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes float {
+                0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+                10% { opacity: 1; }
+                90% { opacity: 1; }
+                100% { transform: translateY(-100px) rotate(360deg); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // 启动背景动画
+        createFloatingElements();
+        setInterval(createFloatingElements, 30000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+*.pyc
+__pycache__/
+.pytest_cache/
+venv/
+env/
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+*.egg-info/
+
+# Database
+*.db
+*.sqlite3
+*.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# MT5 logs and data
+mt5_data/
+mt5_*.log
+
+# Flask logs
+app.log
+
+# WebSocket logs
+websocket.log
+high_frequency_websocket.log
+
+# API keys and secrets
+*.key
+*.pem
+*.crt
