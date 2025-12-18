@@ -72,8 +72,8 @@ const Header: React.FC = () => {
   useEffect(() => {
     // 立即连接，不依赖isConnected状态
     if (!isConnected) {
-      console.log('尝试连接WebSocket服务器: ws://localhost:5001')
-      connect('ws://localhost:5001')
+      console.log('尝试连接WebSocket服务器: ws://localhost:65534')
+      connect('ws://localhost:65534')
     }
   }, [connect, isConnected])
 

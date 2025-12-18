@@ -49,9 +49,10 @@ class WebSocketService {
         this.isConnecting = false
         this.reconnectAttempts = 0
         
-        // 重新订阅之前订阅的品种
-        this.subscriptions.forEach(symbol => {
-          this.subscribe(symbol)
+        // 重新订阅之前订阅的品种（处理格式：symbol_timeframe）
+        this.subscriptions.forEach(subscriptionKey => {
+          const [symbol, timeframe] = subscriptionKey.split('_')
+          this.subscribe(symbol, timeframe)
         })
         
         this.callbacks.onConnect.forEach(callback => callback())
@@ -148,9 +149,23 @@ class WebSocketService {
             console.error('kline_data消息格式错误:', payload)
             return
           }
+          
+          // 标准化kline数据，确保时间戳格式统一
+          const standardizedKline = this.standardizeKlineData(payload)
+          
+          console.log('WebSocketService - 处理标准化的kline_data消息:', {
+            symbol: standardizedKline.symbol,
+            time: standardizedKline.time,
+            open: standardizedKline.open,
+            high: standardizedKline.high,
+            low: standardizedKline.low,
+            close: standardizedKline.close,
+            volume: standardizedKline.volume
+          })
+          
           this.callbacks.onKline.forEach(callback => {
             try {
-              callback(payload)
+              callback(standardizedKline)
             } catch (error) {
               console.error('WebSocketService - 调用onKline回调失败:', error)
             }
@@ -216,6 +231,56 @@ class WebSocketService {
     }
   }
   
+  private standardizeKlineData(klineData: any): any {
+    // 标准化kline数据，确保时间戳格式统一
+    let time: number
+    
+    // 确保time是数字格式
+    if (klineData.time && typeof klineData.time === 'object' && klineData.time instanceof Date) {
+      // 如果是Date对象，转换为秒级时间戳
+      time = Math.floor(klineData.time.getTime() / 1000)
+    } else if (klineData.time && typeof klineData.time === 'number') {
+      time = klineData.time
+    } else if (klineData.time && typeof klineData.time === 'string') {
+      // 如果是字符串，尝试解析为Date对象
+      const date = new Date(klineData.time)
+      if (!isNaN(date.getTime())) {
+        // 如果是有效的日期字符串，转换为秒级时间戳
+        time = Math.floor(date.getTime() / 1000)
+      } else {
+        // 尝试直接解析为数字
+        time = Number(klineData.time)
+      }
+    } else {
+      // 如果没有time字段或无法解析，使用当前时间的K线开始时间
+      const now = Date.now()
+      time = Math.floor(now / 60000) * 60  // 默认分钟级K线
+    }
+    
+    // 确保最终time是有效的数字，如果不是则使用当前时间
+    if (isNaN(time)) {
+      const now = Date.now()
+      time = Math.floor(now / 60000) * 60  // 默认分钟级K线
+    }
+    
+    // 优先使用转换后的成交量单位，与历史数据保持一致
+    const volume = Number(klineData.volume_real) || Number(klineData.volume) || Number(klineData.volumeReal) || Number(klineData.real_volume) || Number(klineData.realVolume) || Number(klineData.amount) || 0
+    
+    // 返回标准化的kline数据
+    return {
+      ...klineData,
+      symbol: klineData.symbol || 'UNKNOWN',
+      time: time, // 确保是数字格式的时间戳
+      open: Number(klineData.open) || 0,
+      high: Number(klineData.high) || 0,
+      low: Number(klineData.low) || 0,
+      close: Number(klineData.close) || 0,
+      volume: volume, // 优先使用转换后的成交量单位
+      volume_real: Number(klineData.volume_real) || Number(klineData.volumeReal) || Number(klineData.real_volume) || Number(klineData.realVolume) || Number(klineData.amount) || volume,
+      real_volume: Number(klineData.real_volume) || Number(klineData.realVolume) || Number(klineData.volume_real) || Number(klineData.volumeReal) || Number(klineData.amount) || volume
+    }
+  }
+  
   private isDuplicateTick(tickData: any): boolean {
     const key = `${tickData.symbol}_${tickData.timestamp}`  // 使用毫秒级时间戳作为键
     const lastTick = this.lastProcessedTicks.get(key)
@@ -242,10 +307,10 @@ class WebSocketService {
     return false
   }
   
-  subscribe(symbol: string): void {
+  subscribe(symbol: string, timeframe: string = 'M1'): void {
     if (!this.isConnected) {
       console.warn('WebSocket未连接，稍后重试订阅')
-      this.subscriptions.add(symbol)
+      this.subscriptions.add(`${symbol}_${timeframe}`)
       return
     }
     
@@ -253,27 +318,29 @@ class WebSocketService {
       type: 'subscribe',
       data: {
         channels: ['ticks', 'klines'],
-        symbol: symbol
+        symbol: symbol,
+        timeframe: timeframe
       }
     }
     
     this.socket?.send(JSON.stringify(subscription))
-    this.subscriptions.add(symbol)
+    this.subscriptions.add(`${symbol}_${timeframe}`)
   }
   
-  unsubscribe(symbol: string): void {
+  unsubscribe(symbol: string, timeframe: string = 'M1'): void {
     if (!this.isConnected) return
     
     const unsubscribe = {
       type: 'unsubscribe',
       data: {
         channels: ['ticks', 'klines'],
-        symbol: symbol
+        symbol: symbol,
+        timeframe: timeframe
       }
     }
     
     this.socket?.send(JSON.stringify(unsubscribe))
-    this.subscriptions.delete(symbol)
+    this.subscriptions.delete(`${symbol}_${timeframe}`)
   }
   
   onTick(callback: (tick: any) => void): () => void {
@@ -464,6 +531,7 @@ export class MarketService {
   }>> {
     try {
       const response = await apiClient.get(`/api/market/history/${symbol}/${timeframe}?count=${count}`)
+      
       return {
         success: response.data.success || false,
         data: response.data.data,
@@ -481,14 +549,14 @@ export class MarketService {
   /**
    * WebSocket相关方法
    */
-  subscribeToSymbol(symbol: string): void {
-    console.log(`MarketService - 订阅品种: ${symbol}`)
-    this.wsService.subscribe(symbol)
+  subscribeToSymbol(symbol: string, timeframe: string = 'M1'): void {
+    console.log(`MarketService - 订阅品种: ${symbol}, 时间框架: ${timeframe}`)
+    this.wsService.subscribe(symbol, timeframe)
   }
   
-  unsubscribeFromSymbol(symbol: string): void {
-    console.log(`MarketService - 取消订阅品种: ${symbol}`)
-    this.wsService.unsubscribe(symbol)
+  unsubscribeFromSymbol(symbol: string, timeframe: string = 'M1'): void {
+    console.log(`MarketService - 取消订阅品种: ${symbol}, 时间框架: ${timeframe}`)
+    this.wsService.unsubscribe(symbol, timeframe)
   }
   
   onTick(callback: (tick: any) => void): () => void {

@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import styled from 'styled-components'
-import { createChart, CandlestickData, HistogramData, IChartApi, ISeriesApi, Time } from 'lightweight-charts'
-import { KlineData } from '../../types'
+import { createChart, CandlestickData, HistogramData, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
 import marketService from '@services/marketService'
 import { theme } from '../../styles/theme'
 
@@ -50,26 +49,24 @@ const TimeframeButtons = styled.div`
   gap: 5px;
 `
 
-const TimeframeButton = styled.button<{ isActive: boolean }>`
-  padding: 8px 12px;
-  border: 1px solid ${theme.colors.border};
-  border-radius: ${theme.borderRadius.sm};
-  background: ${props => props.isActive ? theme.colors.primary : theme.colors.backgroundLight};
-  color: ${props => props.isActive ? theme.colors.text : theme.colors.textTertiary};
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: ${props => props.isActive ? theme.colors.primaryDark : theme.colors.backgroundLighter};
-    border-color: ${props => props.isActive ? theme.colors.primaryDark : theme.colors.borderDark};
-  }
-
-  &:focus {
-    outline: none;
-    border-color: ${theme.colors.primary};
-  }
-`
+const TimeframeButton = styled.button<{ isActive: boolean }>(({ theme, isActive }) => ({
+  padding: '8px 12px',
+  border: `1px solid ${theme.colors.border}`,
+  borderRadius: theme.borderRadius.sm,
+  background: isActive ? theme.colors.primary : theme.colors.backgroundLight,
+  color: isActive ? theme.colors.text : theme.colors.textTertiary,
+  fontSize: '12px',
+  cursor: 'pointer',
+  transition: 'all 0.2s ease',
+  '&:hover': {
+    background: isActive ? theme.colors.primaryDark : theme.colors.backgroundLighter,
+    borderColor: isActive ? theme.colors.primaryDark : theme.colors.borderDark,
+  },
+  '&:focus': {
+    outline: 'none',
+    borderColor: theme.colors.primary,
+  },
+}))
 
 const LoadingOverlay = styled.div`
   position: absolute;
@@ -134,34 +131,34 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
     const date = new Date(msTimestamp)
     
     // 清零毫秒
-    date.setMilliseconds(0)
+    date.setUTCMilliseconds(0)
     
     switch (tf) {
       case 'M1':
-        date.setSeconds(0)
+        date.setUTCSeconds(0, 0)
         break
       case 'M5':
-        const minute = date.getMinutes()
-        date.setMinutes(Math.floor(minute / 5) * 5, 0, 0)
+        const minute = date.getUTCMinutes()
+        date.setUTCMinutes(Math.floor(minute / 5) * 5, 0, 0)
         break
       case 'M15':
-        date.setMinutes(Math.floor(date.getMinutes() / 15) * 15, 0, 0)
+        date.setUTCMinutes(Math.floor(date.getUTCMinutes() / 15) * 15, 0, 0)
         break
       case 'M30':
-        date.setMinutes(Math.floor(date.getMinutes() / 30) * 30, 0, 0)
+        date.setUTCMinutes(Math.floor(date.getUTCMinutes() / 30) * 30, 0, 0)
         break
       case 'H1':
-        date.setMinutes(0, 0, 0)
+        date.setUTCMinutes(0, 0, 0)
         break
       case 'H4':
-        const hour = date.getHours()
-        date.setHours(Math.floor(hour / 4) * 4, 0, 0, 0)
+        const hour = date.getUTCHours()
+        date.setUTCHours(Math.floor(hour / 4) * 4, 0, 0, 0)
         break
       case 'D1':
-        date.setHours(0, 0, 0, 0)
+        date.setUTCHours(0, 0, 0, 0)
         break
       default:
-        date.setSeconds(0, 0)
+        date.setUTCSeconds(0, 0)
     }
     
     return Math.floor(date.getTime() / 1000)
@@ -173,24 +170,48 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
     if (tickData.symbol !== symbol) return
     
     // 确保图表系列已初始化
-    if (!candlestickSeriesRef.current || !volumeSeriesRef.current) return
+    if (!candlestickSeriesRef.current || !volumeSeriesRef.current) {
+      console.log('图表系列未初始化，跳过tick处理')
+      return
+    }
+    
+    // 打印原始tick数据
+    console.log('原始tick数据:', {
+      symbol: tickData.symbol,
+      bid: tickData.bid,
+      ask: tickData.ask,
+      time: tickData.time,
+      timestamp: tickData.timestamp,
+      volume: tickData.volume
+    })
     
     // 获取价格和成交量
     const price = (tickData.bid + tickData.ask) / 2
-    const volume = tickData.volume || 0
+    // 尝试从多个可能的字段获取成交量信息，优先使用volume_real与历史数据单位一致
+    const volume = tickData.volume_real || tickData.volume || tickData.volumeReal || tickData.amount || 0
     
-    // 使用tickData中的时间（秒级时间戳）
-    const tickTime = tickData.time || Math.floor(Date.now() / 1000)
+    // 优先使用毫秒级时间戳（timestamp），确保更高精度的时间处理
+    let tickTimeMs: number
+    if (tickData.timestamp) {
+      tickTimeMs = typeof tickData.timestamp === 'number' ? tickData.timestamp : Number(tickData.timestamp)
+    } else if (tickData.time) {
+      const timeValue = typeof tickData.time === 'number' ? tickData.time : Number(tickData.time)
+      // 如果时间戳小于10000000000，说明是秒级时间戳，转换为毫秒级
+      tickTimeMs = timeValue < 10000000000 ? timeValue * 1000 : timeValue
+    } else {
+      tickTimeMs = Date.now()
+    }
     
     // 计算当前tick对应的K线时间
-    const candleTime = getCandleTime(tickTime * 1000, timeframe)
+    const candleTime = getCandleTime(tickTimeMs, timeframe)
     
     console.log('处理tick数据:', {
       symbol: tickData.symbol,
       price: price,
-      tickTime: tickTime,
+      tickTimeMs: tickTimeMs,
       candleTime: candleTime,
-      currentCandleTime: currentCandleRef.current?.time
+      currentCandleTime: currentCandleRef.current?.time,
+      isNewCandle: !currentCandleRef.current || currentCandleRef.current.time !== candleTime
     })
     
     // 检查是否是新的K线
@@ -199,13 +220,16 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
       
       // 如果存在上一根K线，将其添加到历史数据
       if (currentCandleRef.current) {
+        // 确保time是数字类型
+        const candleTime = Number(currentCandleRef.current.time);
+        
         const completedCandle: CandlestickData = {
-          time: currentCandleRef.current.time as Time,
-          open: currentCandleRef.current.open,
-          high: currentCandleRef.current.high,
-          low: currentCandleRef.current.low,
-          close: currentCandleRef.current.close
-        }
+        time: candleTime as UTCTimestamp,
+        open: currentCandleRef.current.open,
+        high: currentCandleRef.current.high,
+        low: currentCandleRef.current.low,
+        close: currentCandleRef.current.close
+      }
         
         historicalDataRef.current.push(completedCandle)
         
@@ -222,7 +246,7 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
       
       // 开始新的K线
       currentCandleRef.current = {
-        time: candleTime,
+        time: Number(candleTime), // 确保time是数字类型
         open: price,
         high: price,
         low: price,
@@ -240,22 +264,29 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
       // 在图表上创建新的K线
       try {
         const newCandle: CandlestickData = {
-          time: candleTime as Time,
+          time: Number(candleTime) as UTCTimestamp, // 确保time是数字类型
           open: price,
           high: price,
           low: price,
           close: price
         }
         
-        candlestickSeriesRef.current.update(newCandle)
+        // 使用append方法添加新数据点，而不是update方法
+        // 使用setData更新整个图表而不是append
+        const currentData = [...(candlestickSeriesRef.current.data() || [])]
+        currentData.push(newCandle)
+        candlestickSeriesRef.current.setData(currentData)
         
         // 更新成交量
         const newVolumeData = {
-          time: candleTime as Time,
+          time: Number(candleTime) as UTCTimestamp, // 确保time是数字类型
           value: volume,
-          color: price >= price ? '#26a69a' : '#ef5350' // 开盘价等于收盘价，默认绿色
+          color: '#26a69a' // 开盘价等于收盘价，默认绿色
         }
-        volumeSeriesRef.current.update(newVolumeData)
+        // 使用setData更新整个图表而不是append
+        const currentVolumeData = [...(volumeSeriesRef.current.data() || [])]
+        currentVolumeData.push(newVolumeData)
+        volumeSeriesRef.current.setData(currentVolumeData)
       } catch (error) {
         console.error('创建新K线时出错:', error)
       }
@@ -278,7 +309,7 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
       // 更新图表上的当前K线
       try {
         const updatedCandle: CandlestickData = {
-          time: candleTime as Time,
+          time: Number(candleTime) as UTCTimestamp, // 确保time是数字类型
           open: currentCandleRef.current.open,
           high: currentCandleRef.current.high,
           low: currentCandleRef.current.low,
@@ -287,11 +318,11 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
         
         candlestickSeriesRef.current.update(updatedCandle)
         
-        // 更新成交量
+        // 更新成交量图表
         const updatedVolumeData = {
-          time: candleTime as Time,
+          time: Number(candleTime) as UTCTimestamp, // 确保time是数字类型
           value: currentCandleRef.current.volume,
-          color: currentCandleRef.current.close >= currentCandleRef.current.open ? '#26a69a' : '#ef5350'
+          color: currentCandleRef.current.open <= currentCandleRef.current.close ? '#26a69a' : '#ef5350' // 根据涨跌设置颜色
         }
         volumeSeriesRef.current.update(updatedVolumeData)
       } catch (error) {
@@ -339,15 +370,19 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
           borderColor: '#2B2B43',
           tickMarkFormatter: (time: number) => {
             const date = new Date(time * 1000)
-            // 使用本地时间格式，与MT5保持一致
-            return date.toLocaleString('zh-CN', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false
-            })
+            // 使用UTC时间格式，与MT5服务器时间保持一致
+            const year = date.getUTCFullYear()
+            const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+            const day = String(date.getUTCDate()).padStart(2, '0')
+            const hour = String(date.getUTCHours()).padStart(2, '0')
+            const minute = String(date.getUTCMinutes()).padStart(2, '0')
+            
+            // 根据时间框架显示不同的格式
+            if (timeframe === 'D1' || timeframe === 'W1' || timeframe === 'MN') {
+              return `${year}-${month}-${day}`
+            } else {
+              return `${year}-${month}-${day} ${hour}:${minute}`
+            }
           }
         },
         crosshair: {
@@ -445,30 +480,38 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
           const candles: CandlestickData[] = []
           const volumes: HistogramData[] = []
           
-          response.data.data.forEach((item: KlineData) => {
+          response.data.data.forEach((item: any) => {
             let time: number
             
             if (typeof item.time === 'number') {
               time = item.time > 10000000000 ? Math.floor(item.time / 1000) : item.time
             } else if (typeof item.time === 'string') {
-              const date = new Date(item.time)
+              // 显式将ISO字符串解析为UTC时间，确保与MT5服务器时间一致
+              const date = new Date(item.time + 'Z')
               time = Math.floor(date.getTime() / 1000)
             } else {
               time = Math.floor(Date.now() / 1000)
             }
             
+            // 确保所有价格和成交量都转换为数字格式
+            const openPrice = Number(item.open)
+            const highPrice = Number(item.high)
+            const lowPrice = Number(item.low)
+            const closePrice = Number(item.close)
+            const vol = Number(item.volume) || Number(item.real_volume) || Number(item.realVolume) || 0
+            
             candles.push({
-              time: time as Time,
-              open: Number(item.open),
-              high: Number(item.high),
-              low: Number(item.low),
-              close: Number(item.close),
+              time: time as UTCTimestamp,
+              open: openPrice,
+              high: highPrice,
+              low: lowPrice,
+              close: closePrice,
             })
             
             volumes.push({
-              time: time as Time,
-              value: Number(item.volume),
-              color: item.close >= item.open ? '#26a69a' : '#ef5350',
+              time: time as UTCTimestamp,
+              value: vol,
+              color: closePrice >= openPrice ? '#26a69a' : '#ef5350',
             })
           })
           
@@ -521,17 +564,24 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
     // 确保图表系列已初始化
     if (!candlestickSeriesRef.current || !volumeSeriesRef.current) return
     
-    console.log('处理实时K线数据:', klineData)
+    // 优先使用转换后的成交量单位，与历史数据保持一致
+    const klineVolume = Number(klineData.volume_real) || Number(klineData.volume) || Number(klineData.volumeReal) || Number(klineData.real_volume) || Number(klineData.realVolume) || 0
     
-    // 更新当前K线或添加新K线
-    const candleTime = klineData.time
+    console.log('处理实时K线数据:', {
+      ...klineData,
+      originalVolume: klineData.volume,
+      processedVolume: klineVolume
+    })
+    
+    // 确保时间戳为数字类型以便正确比较
+    const candleTime = typeof klineData.time === 'number' ? klineData.time : Number(klineData.time)
     
     // 如果当前没有K线或时间不同，开始新的K线
     if (!currentCandleRef.current || currentCandleRef.current.time !== candleTime) {
       // 如果存在上一根K线，将其添加到历史数据
       if (currentCandleRef.current) {
         const completedCandle: CandlestickData = {
-          time: currentCandleRef.current.time as Time,
+          time: currentCandleRef.current.time as UTCTimestamp,
           open: currentCandleRef.current.open,
           high: currentCandleRef.current.high,
           low: currentCandleRef.current.low,
@@ -545,7 +595,7 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
         
         // 更新成交量
         const volumeData = {
-          time: currentCandleRef.current.time as Time,
+          time: currentCandleRef.current.time as UTCTimestamp,
           value: currentCandleRef.current.volume,
           color: currentCandleRef.current.close >= currentCandleRef.current.open ? '#26a69a' : '#ef5350'
         }
@@ -559,37 +609,45 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
         high: klineData.high,
         low: klineData.low,
         close: klineData.close,
-        volume: klineData.volume
+        volume: klineVolume
       }
       
       // 在图表上创建新的K线
       const newCandle: CandlestickData = {
-        time: candleTime as Time,
+        time: candleTime as UTCTimestamp,
         open: klineData.open,
         high: klineData.high,
         low: klineData.low,
         close: klineData.close
       }
       
-      candlestickSeriesRef.current.update(newCandle)
+      // 使用append方法添加新的K线数据点
+      // 使用setData更新整个图表而不是append
+      const currentData = [...(candlestickSeriesRef.current.data() || [])]
+      currentData.push(newCandle)
+      candlestickSeriesRef.current.setData(currentData)
       
       // 更新成交量
       const newVolumeData = {
-        time: candleTime as Time,
-        value: klineData.volume,
+        time: candleTime as UTCTimestamp,
+        value: klineVolume,
         color: klineData.close >= klineData.open ? '#26a69a' : '#ef5350'
       }
-      volumeSeriesRef.current.update(newVolumeData)
+      // 使用setData更新整个图表而不是append
+      const currentVolumeData = [...(volumeSeriesRef.current.data() || [])]
+      currentVolumeData.push(newVolumeData)
+      volumeSeriesRef.current.setData(currentVolumeData)
     } else {
       // 更新当前K线
       currentCandleRef.current.high = Math.max(currentCandleRef.current.high, klineData.high)
       currentCandleRef.current.low = Math.min(currentCandleRef.current.low, klineData.low)
       currentCandleRef.current.close = klineData.close
-      currentCandleRef.current.volume += klineData.volume
+      currentCandleRef.current.volume += klineVolume
       
       // 更新图表上的当前K线
+      const currentTime = Number(candleTime); // 确保time是数字类型
       const updatedCandle: CandlestickData = {
-        time: candleTime as Time,
+        time: currentTime as UTCTimestamp,
         open: currentCandleRef.current.open,
         high: currentCandleRef.current.high,
         low: currentCandleRef.current.low,
@@ -600,13 +658,13 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
       
       // 更新成交量
       const updatedVolumeData = {
-        time: candleTime as Time,
+        time: candleTime as UTCTimestamp,
         value: currentCandleRef.current.volume,
         color: currentCandleRef.current.close >= currentCandleRef.current.open ? '#26a69a' : '#ef5350'
       }
       volumeSeriesRef.current.update(updatedVolumeData)
     }
-  }, [symbol])
+  }, [symbol, timeframe])
 
   // WebSocket连接管理
   useEffect(() => {
@@ -628,8 +686,8 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
     
     setConnectionInfo(marketService.getConnectionInfo())
     
-    // 订阅当前品种
-    marketService.subscribeToSymbol(symbol)
+    // 订阅当前品种和时间框架
+    marketService.subscribeToSymbol(symbol, timeframe)
     
     return () => {
       console.log('清理WebSocket订阅...')
@@ -638,9 +696,9 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
       unsubConnect()
       unsubDisconnect()
       unsubError()
-      marketService.unsubscribeFromSymbol(symbol)
+      marketService.unsubscribeFromSymbol(symbol, timeframe)
     }
-  }, [symbol, handleRealTimeTick, handleRealTimeKline])
+  }, [symbol, timeframe, handleRealTimeTick, handleRealTimeKline])
 
   // 获取交易品种列表
   useEffect(() => {
@@ -689,75 +747,7 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
     setTimeframe(newTimeframe)
   }
 
-  // 手动刷新图表
-  const handleRefresh = () => {
-    console.log('手动刷新图表')
-    setIsLoading(true)
-    
-    // 重新获取历史数据
-    const fetchKlineData = async () => {
-      try {
-        const response = await marketService.getHistoryKlineData(symbol, timeframe, 200)
-        
-        if (response.success && response.data?.data) {
-          const candles: CandlestickData[] = []
-          const volumes: HistogramData[] = []
-          
-          response.data.data.forEach((item: KlineData) => {
-            let time: number
-            if (typeof item.time === 'number') {
-              time = item.time > 10000000000 ? Math.floor(item.time / 1000) : item.time
-            } else {
-              time = Math.floor(Date.now() / 1000)
-            }
-            
-            candles.push({
-              time: time as Time,
-              open: Number(item.open),
-              high: Number(item.high),
-              low: Number(item.low),
-              close: Number(item.close),
-            })
-            
-            volumes.push({
-              time: time as Time,
-              value: Number(item.volume),
-              color: item.close >= item.open ? '#26a69a' : '#ef5350',
-            })
-          })
-          
-          historicalDataRef.current = candles
-          
-          if (candles.length > 0) {
-            const lastCandle = candles[candles.length - 1]
-            currentCandleRef.current = {
-              time: Number(lastCandle.time),
-              open: lastCandle.open,
-              high: lastCandle.high,
-              low: lastCandle.low,
-              close: lastCandle.close,
-              volume: volumes[volumes.length - 1]?.value || 0
-            }
-          }
-          
-          if (candlestickSeriesRef.current && volumeSeriesRef.current) {
-            candlestickSeriesRef.current.setData(candles)
-            volumeSeriesRef.current.setData(volumes)
-            
-            if (chartRef.current) {
-              chartRef.current.timeScale().fitContent()
-            }
-          }
-        }
-      } catch (error) {
-        console.error('刷新数据失败:', error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    
-    fetchKlineData()
-  }
+
 
   const connectionStatus = connectionInfo.isConnected ? 'connected' : 
                            connectionInfo.isConnecting ? 'connecting' : 'disconnected'
@@ -801,29 +791,7 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
             </span>
           </div>
           
-          <button
-            onClick={handleRefresh}
-            style={{
-              padding: '8px 12px',
-              border: `1px solid ${theme.colors.border}`,
-              borderRadius: theme.borderRadius.sm,
-              background: theme.colors.backgroundLight,
-              color: theme.colors.text,
-              fontSize: '12px',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = theme.colors.backgroundLighter
-              e.currentTarget.style.borderColor = theme.colors.borderDark
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = theme.colors.backgroundLight
-              e.currentTarget.style.borderColor = theme.colors.border
-            }}
-          >
-            刷新图表
-          </button>
+
         </div>
         
         <TimeframeButtons>

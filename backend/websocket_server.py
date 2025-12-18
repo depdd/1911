@@ -61,6 +61,19 @@ class WebSocketServer:
         try:
             self.running = True
             logger.info(f"WebSocket服务器启动: {host}:{port}")
+            print(f"[DEBUG] WebSocket服务器启动: {host}:{port}")
+            
+            # 检查端口是否真的可以绑定
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                try:
+                    s.bind((host, port))
+                    print(f"[DEBUG] 成功绑定端口: {host}:{port}")
+                    s.close()
+                except Exception as e:
+                    print(f"[ERROR] 无法绑定端口: {e}")
+                    raise
             
             async with websockets.serve(
                 self.handle_client, 
@@ -69,14 +82,22 @@ class WebSocketServer:
                 ping_interval=30,
                 ping_timeout=10
             ):
+                print(f"[DEBUG] WebSocket服务器已启动，正在监听: {host}:{port}")
+                logger.info(f"WebSocket服务器已启动，正在监听: {host}:{port}")
+                
                 # 启动心跳任务
+                print("[DEBUG] 启动心跳任务")
                 asyncio.create_task(self.heartbeat_task())
+                
                 # 启动数据推送任务
+                print("[DEBUG] 启动数据推送任务")
                 asyncio.create_task(self.data_pusher_task())
                 
+                print("[DEBUG] WebSocket服务器保持运行")
                 await asyncio.Future()  # 保持运行
                 
         except Exception as e:
+            print(f"[ERROR] WebSocket服务器启动失败: {e}")
             logger.error(f"WebSocket服务器启动失败: {e}")
             raise
     
@@ -379,6 +400,8 @@ class WebSocketServer:
                     await asyncio.sleep(5)
                     continue
                 
+                logger.debug("开始数据推送任务")
+                
                 # 推送账户更新
                 await self.push_account_updates()
                 
@@ -388,6 +411,7 @@ class WebSocketServer:
                 # 推送行情数据
                 await self.push_market_data()
                 
+                logger.debug("数据推送任务完成，等待下一次执行")
                 await asyncio.sleep(1)  # 每秒检查一次
                 
             except redis.ConnectionError:
@@ -442,9 +466,11 @@ class WebSocketServer:
                     last_update = data.get('time', 0)
                     current_time = datetime.now().timestamp()
                     
-                    # 如果数据在1秒内更新过，则推送
-                    if current_time - last_update < 1:
-                        await self.broadcast_to_channel('ticks', MessageType.TICK_DATA.value, data)
+                    logger.debug(f"准备推送{symbol}的tick数据: {data}")
+                    
+                    # 只要Redis中有数据就推送（由于时间戳可能存在时区问题，不再检查更新时间）
+                    await self.broadcast_to_channel('ticks', MessageType.TICK_DATA.value, data)
+                    logger.debug(f"成功推送{symbol}的tick数据到ticks频道")
                         
         except Exception as e:
             logger.error(f"推送行情数据异常: {e}")

@@ -29,7 +29,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:5001',
+        target: 'ws://localhost:65534',
         ws: true
       }
     }
