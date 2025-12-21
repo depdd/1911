@@ -27,8 +27,16 @@ class WebSocketService {
     onError: [] as ((error: Error) => void)[],
   }
   
-  // 用于跟踪已处理的tick数据
+  // 用于跟踪已处理的tick数据 - 优化去重逻辑
   private lastProcessedTicks = new Map<string, { timestamp: number, count: number }>()
+  // 添加心跳计时器
+  private heartbeatTimer: NodeJS.Timeout | null = null
+  // 添加连接计时器
+  private connectionTimer: NodeJS.Timeout | null = null
+  // 添加时间偏移量（用于服务器时间同步）
+  private timeOffset: number = 0
+  // 指数退避重连
+  private reconnectTimer: NodeJS.Timeout | null = null
 
   constructor(private wsUrl: string = 'ws://localhost:65534') {}
 
@@ -41,6 +49,13 @@ class WebSocketService {
     try {
       console.log('正在连接WebSocket服务器...')
       this.isConnecting = true
+      
+      // 清除旧的连接
+      if (this.socket) {
+        this.socket.close()
+        this.socket = null
+      }
+      
       this.socket = new WebSocket(this.wsUrl)
       
       this.socket.onopen = () => {
@@ -49,10 +64,15 @@ class WebSocketService {
         this.isConnecting = false
         this.reconnectAttempts = 0
         
+        // 启动心跳机制
+        this.startHeartbeat()
+        
         // 重新订阅之前订阅的品种（处理格式：symbol_timeframe）
         this.subscriptions.forEach(subscriptionKey => {
           const [symbol, timeframe] = subscriptionKey.split('_')
-          this.subscribe(symbol, timeframe)
+          if (symbol && timeframe) {
+            setTimeout(() => this.subscribe(symbol, timeframe), 100)
+          }
         })
         
         this.callbacks.onConnect.forEach(callback => callback())
@@ -72,8 +92,16 @@ class WebSocketService {
         console.log(`WebSocket连接已关闭，代码: ${event.code}, 原因: ${event.reason}`)
         this.isConnected = false
         this.isConnecting = false
+        
+        // 清理心跳
+        this.stopHeartbeat()
+        
         this.callbacks.onDisconnect.forEach(callback => callback())
-        this.scheduleReconnect()
+        
+        // 如果不是正常关闭，尝试重连
+        if (event.code !== 1000) {
+          this.scheduleReconnect()
+        }
       }
       
       this.socket.onerror = (error) => {
@@ -81,6 +109,18 @@ class WebSocketService {
         this.isConnecting = false
         this.callbacks.onError.forEach(callback => callback(new Error('WebSocket连接错误')))
       }
+      
+      // 设置连接超时
+      this.connectionTimer = setTimeout(() => {
+        if (!this.isConnected && this.isConnecting) {
+          console.log('WebSocket连接超时')
+          this.isConnecting = false
+          if (this.socket) {
+            this.socket.close()
+          }
+          this.scheduleReconnect()
+        }
+      }, 10000)
       
     } catch (error) {
       console.error('WebSocket连接失败:', error)
@@ -104,7 +144,13 @@ class WebSocketService {
         return
       }
 
-      console.log(`WebSocketService - 收到${type}消息:`, payload)
+      // 减少日志输出，只记录关键信息
+      if (type === 'tick_data' || type === 'kline_data') {
+        console.log(`WebSocketService - 收到${type}消息:`, {
+          symbol: payload?.symbol,
+          time: payload?.time
+        })
+      }
 
       switch (type) {
         case 'tick_data':
@@ -116,24 +162,13 @@ class WebSocketService {
           // 标准化tick数据，确保时间戳格式统一
           const standardizedTick = this.standardizeTickData(payload)
           
-          // 检查是否是重复的tick（防止同一个tick被处理多次）
+          // 优化重复检测逻辑 - 放宽检测条件
           if (this.isDuplicateTick(standardizedTick)) {
-            console.log('检测到重复的tick数据，跳过处理:', {
-              symbol: standardizedTick.symbol,
-              time: standardizedTick.time,
-              timestamp: standardizedTick.timestamp
-            })
             return
           }
           
-          console.log('WebSocketService - 处理标准化的tick_data消息:', {
-            symbol: standardizedTick.symbol,
-            time: standardizedTick.time,
-            bid: standardizedTick.bid,
-            ask: standardizedTick.ask,
-            timestamp: standardizedTick.timestamp,
-            volume: standardizedTick.volume
-          })
+          // 记录处理成功的tick
+          this.recordProcessedTick(standardizedTick)
           
           this.callbacks.onTick.forEach(callback => {
             try {
@@ -152,16 +187,6 @@ class WebSocketService {
           
           // 标准化kline数据，确保时间戳格式统一
           const standardizedKline = this.standardizeKlineData(payload)
-          
-          console.log('WebSocketService - 处理标准化的kline_data消息:', {
-            symbol: standardizedKline.symbol,
-            time: standardizedKline.time,
-            open: standardizedKline.open,
-            high: standardizedKline.high,
-            low: standardizedKline.low,
-            close: standardizedKline.close,
-            volume: standardizedKline.volume
-          })
           
           this.callbacks.onKline.forEach(callback => {
             try {
@@ -191,6 +216,10 @@ class WebSocketService {
           })
           break
           
+        case 'pong':
+          // 心跳响应，无需处理
+          break
+          
         default:
           console.log('收到未知类型的WebSocket消息:', type, payload)
       }
@@ -212,11 +241,33 @@ class WebSocketService {
       // 从monitor_redis_ticks.py可以看到，Redis存储的是秒级时间戳
       time = tickData.time  // 秒级时间戳
       timestamp = time * 1000  // 转换为毫秒级
+    } else if (tickData.timestamp) {
+      // 如果有timestamp字段，使用它
+      const ts = Number(tickData.timestamp)
+      if (ts < 10000000000) {
+        // 秒级时间戳
+        time = ts
+        timestamp = ts * 1000
+      } else {
+        // 毫秒级时间戳
+        timestamp = ts
+        time = Math.floor(ts / 1000)
+      }
     } else {
       // 如果没有time字段，使用当前时间
-      time = Math.floor(Date.now() / 1000)
-      timestamp = Date.now()
+      const now = Date.now()
+      time = Math.floor(now / 1000)
+      timestamp = now
     }
+    
+    // 应用时间偏移校正（如果已同步）
+    if (this.timeOffset !== 0) {
+      timestamp += this.timeOffset
+      time = Math.floor(timestamp / 1000)
+    }
+    
+    // 标准化成交量
+    const volume = this.normalizeVolume(tickData)
     
     // 返回标准化的tick数据
     return {
@@ -226,8 +277,8 @@ class WebSocketService {
       ask: Number(tickData.ask) || 0,
       timestamp: timestamp, // 毫秒级时间戳
       time: time, // 秒级时间戳
-      volume: tickData.volume || 0,
-      volume_real: tickData.volume_real || 0,
+      volume: volume,
+      volume_real: volume,
     }
   }
   
@@ -263,8 +314,14 @@ class WebSocketService {
       time = Math.floor(now / 60000) * 60  // 默认分钟级K线
     }
     
-    // 优先使用转换后的成交量单位，与历史数据保持一致
-    const volume = Number(klineData.volume_real) || Number(klineData.volume) || Number(klineData.volumeReal) || Number(klineData.real_volume) || Number(klineData.realVolume) || Number(klineData.amount) || 0
+    // 应用时间偏移校正
+    if (this.timeOffset !== 0) {
+      const correctedTime = time * 1000 + this.timeOffset
+      time = Math.floor(correctedTime / 1000)
+    }
+    
+    // 标准化成交量
+    const volume = this.normalizeVolume(klineData)
     
     // 返回标准化的kline数据
     return {
@@ -275,42 +332,119 @@ class WebSocketService {
       high: Number(klineData.high) || 0,
       low: Number(klineData.low) || 0,
       close: Number(klineData.close) || 0,
-      volume: volume, // 优先使用转换后的成交量单位
-      volume_real: Number(klineData.volume_real) || Number(klineData.volumeReal) || Number(klineData.real_volume) || Number(klineData.realVolume) || Number(klineData.amount) || volume,
-      real_volume: Number(klineData.real_volume) || Number(klineData.realVolume) || Number(klineData.volume_real) || Number(klineData.volumeReal) || Number(klineData.amount) || volume
+      volume: volume,
+      volume_real: volume,
     }
   }
   
-  private isDuplicateTick(tickData: any): boolean {
-    const key = `${tickData.symbol}_${tickData.timestamp}`  // 使用毫秒级时间戳作为键
-    const lastTick = this.lastProcessedTicks.get(key)
+  private normalizeVolume(data: any): number {
+    // 按优先级选择成交量字段
+    const volumeSources = [
+      data.volume_real,
+      data.real_volume,
+      data.volumeReal,
+      data.volume,
+      data.amount,
+      0 // 默认值
+    ]
     
-    if (lastTick) {
-      // 相同毫秒级时间戳的tick，可能是重复的
-      return true
+    // 找到第一个有效值
+    for (const vol of volumeSources) {
+      const numVol = Number(vol)
+      if (!isNaN(numVol) && numVol >= 0) {
+        return numVol
+      }
     }
     
-    // 更新最后处理的tick
-    this.lastProcessedTicks.set(key, {
-      timestamp: tickData.timestamp,
-      count: 1  // 新的tick数据，计数从1开始
-    })
+    return 0
+  }
+  
+  private isDuplicateTick(tickData: any): boolean {
+    // 优化的重复检测逻辑 - 放宽检测条件
+    const key = `${tickData.symbol}_${Math.floor(tickData.timestamp / 100)}` // 每100毫秒一个窗口
+    const lastTick = this.lastProcessedTicks.get(key)
     
-    // 清理旧的记录（避免内存泄漏）
-    if (this.lastProcessedTicks.size > 500) {  // 增加容量以处理更高频率的tick数据
-      const oldestKey = this.lastProcessedTicks.keys().next().value
-      if (oldestKey) {
-        this.lastProcessedTicks.delete(oldestKey)
-      }
+    if (lastTick && tickData.timestamp - lastTick.timestamp < 50) {
+      // 50毫秒内的tick视为可能重复
+      // 增加计数但不丢弃，让图表层决定如何处理
+      lastTick.count++
+      return false // 不再丢弃，让上层处理
     }
     
     return false
   }
   
+  private recordProcessedTick(tickData: any): void {
+    const key = `${tickData.symbol}_${Math.floor(tickData.timestamp / 100)}`
+    this.lastProcessedTicks.set(key, {
+      timestamp: tickData.timestamp,
+      count: 1
+    })
+    
+    // 清理旧的记录（避免内存泄漏）
+    if (this.lastProcessedTicks.size > 1000) {
+      const keys = Array.from(this.lastProcessedTicks.keys())
+      const keysToDelete = keys.slice(0, Math.floor(keys.length / 2))
+      keysToDelete.forEach(k => this.lastProcessedTicks.delete(k))
+    }
+  }
+  
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    
+    this.heartbeatTimer = setInterval(() => {
+      if (this.isConnected && this.socket && this.socket.readyState === WebSocket.OPEN) {
+        try {
+          this.socket.send(JSON.stringify({ type: 'ping' }))
+        } catch (error) {
+          console.error('发送心跳失败:', error)
+        }
+      }
+    }, 30000) // 每30秒发送一次心跳
+  }
+  
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+  }
+  
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+    }
+    
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('达到最大重连次数，停止重连')
+      return
+    }
+    
+    // 指数退避重连策略
+    const delay = Math.min(
+      this.reconnectInterval * Math.pow(2, this.reconnectAttempts),
+      30000 // 最大30秒
+    )
+    
+    this.reconnectTimer = setTimeout(() => {
+      console.log(`尝试重新连接 (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})，延迟: ${delay}ms`)
+      this.reconnectAttempts++
+      this.connect()
+    }, delay)
+  }
+  
   subscribe(symbol: string, timeframe: string = 'M1'): void {
+    const subscriptionKey = `${symbol}_${timeframe}`
+    this.subscriptions.add(subscriptionKey)
+    
     if (!this.isConnected) {
-      console.warn('WebSocket未连接，稍后重试订阅')
-      this.subscriptions.add(`${symbol}_${timeframe}`)
+      console.warn('WebSocket未连接，稍后连接成功后自动订阅')
+      return
+    }
+    
+    // 如果正在连接中，延迟订阅
+    if (this.isConnecting) {
+      setTimeout(() => this.subscribe(symbol, timeframe), 1000)
       return
     }
     
@@ -323,11 +457,18 @@ class WebSocketService {
       }
     }
     
-    this.socket?.send(JSON.stringify(subscription))
-    this.subscriptions.add(`${symbol}_${timeframe}`)
+    try {
+      this.socket?.send(JSON.stringify(subscription))
+      console.log(`订阅品种: ${symbol}, 时间框架: ${timeframe}`)
+    } catch (error) {
+      console.error('发送订阅消息失败:', error)
+    }
   }
   
   unsubscribe(symbol: string, timeframe: string = 'M1'): void {
+    const subscriptionKey = `${symbol}_${timeframe}`
+    this.subscriptions.delete(subscriptionKey)
+    
     if (!this.isConnected) return
     
     const unsubscribe = {
@@ -339,8 +480,12 @@ class WebSocketService {
       }
     }
     
-    this.socket?.send(JSON.stringify(unsubscribe))
-    this.subscriptions.delete(`${symbol}_${timeframe}`)
+    try {
+      this.socket?.send(JSON.stringify(unsubscribe))
+      console.log(`取消订阅品种: ${symbol}, 时间框架: ${timeframe}`)
+    } catch (error) {
+      console.error('发送取消订阅消息失败:', error)
+    }
   }
   
   onTick(callback: (tick: any) => void): () => void {
@@ -414,28 +559,33 @@ class WebSocketService {
     }
   }
   
-  private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('达到最大重连次数，停止重连')
-      return
+  disconnect(): void {
+    // 清理所有计时器
+    this.stopHeartbeat()
+    
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
     }
     
-    setTimeout(() => {
-      console.log(`尝试重新连接 (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`)
-      this.reconnectAttempts++
-      this.connect()
-    }, this.reconnectInterval)
-  }
-  
-  disconnect(): void {
+    if (this.connectionTimer) {
+      clearTimeout(this.connectionTimer)
+      this.connectionTimer = null
+    }
+    
+    // 关闭WebSocket连接
     if (this.socket) {
       this.socket.close()
       this.socket = null
     }
+    
     this.isConnected = false
     this.isConnecting = false
     this.subscriptions.clear()
     this.lastProcessedTicks.clear()
+    this.reconnectAttempts = 0
+    
+    console.log('WebSocket已断开连接')
   }
   
   getConnectionStatus(): boolean {
@@ -457,9 +607,28 @@ class WebSocketService {
       subscribedSymbols: Array.from(this.subscriptions),
     }
   }
+  
+  // 添加服务器时间同步方法
+  async syncServerTime(): Promise<void> {
+    try {
+      const response = await axios.get('http://localhost:5000/api/server-time', { timeout: 5000 })
+      if (response.data && response.data.timestamp) {
+        const serverTime = response.data.timestamp
+        const clientTime = Date.now()
+        const roundTripTime = response.headers['x-response-time'] ? 
+          parseInt(response.headers['x-response-time']) : 50
+        
+        // 计算时间偏移（假设网络延迟是对称的）
+        this.timeOffset = serverTime - clientTime + roundTripTime / 2
+        console.log(`时间同步完成: 服务器时间偏移 ${this.timeOffset}ms`)
+      }
+    } catch (error) {
+      console.warn('时间同步失败，使用本地时间:', error)
+    }
+  }
 }
 
-// 创建WebSocket服务单例，使用正确的端口
+// 创建WebSocket服务单例
 const webSocketService = new WebSocketService('ws://localhost:65534')
 
 export class MarketService {
@@ -468,6 +637,10 @@ export class MarketService {
   constructor() {
     // 自动连接WebSocket
     this.wsService.connect()
+    
+    // 定期同步服务器时间（每小时一次）
+    this.wsService.syncServerTime()
+    setInterval(() => this.wsService.syncServerTime(), 3600000)
   }
   
   /**
@@ -547,6 +720,26 @@ export class MarketService {
   }
   
   /**
+   * 获取服务器时间
+   */
+  async getServerTime(): Promise<ApiResponse<{ timestamp: number }>> {
+    try {
+      const response = await apiClient.get('/api/server-time')
+      return {
+        success: response.data.success || false,
+        data: response.data.data,
+        error: response.data.error,
+      }
+    } catch (error: any) {
+      console.error('Get server time error:', error)
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message || '获取服务器时间失败',
+      }
+    }
+  }
+  
+  /**
    * WebSocket相关方法
    */
   subscribeToSymbol(symbol: string, timeframe: string = 'M1'): void {
@@ -604,6 +797,11 @@ export class MarketService {
   disconnect(): void {
     console.log('MarketService - 断开WebSocket连接')
     this.wsService.disconnect()
+  }
+  
+  // 同步服务器时间
+  async syncServerTime(): Promise<void> {
+    await this.wsService.syncServerTime()
   }
 }
 
