@@ -3,6 +3,7 @@ import { User, Account, ApiResponse } from '../types'
 
 // API基础配置 - 直接使用绝对路径避免代理问题
 const apiClient = axios.create({
+  baseURL: 'http://localhost:5000',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

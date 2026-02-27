@@ -685,7 +685,7 @@ const KlineChart: React.FC<KlineChartProps> = ({ symbol: initialSymbol, timefram
             const highPrice = Number(item.high)
             const lowPrice = Number(item.low)
             const closePrice = Number(item.close)
-            const vol = Number(item.volume) || Number(item.real_volume) || Number(item.realVolume) || 0
+            const vol = Number(item.real_volume) || Number(item.volume_real) || Number(item.realVolume) || Number(item.volume) || 0
             
             candles.push({
               time: ensureUTCTimestamp(time),

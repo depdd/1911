@@ -3,6 +3,7 @@ import { Position, Order, Trade, ApiResponse } from '../types'
 
 // API基础配置 - 直接使用绝对路径避免代理问题
 const apiClient = axios.create({
+  baseURL: 'http://localhost:5000',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -164,6 +165,33 @@ export class AccountService {
       return {
         success: false,
         error: error instanceof Error ? error.message : '获取交易记录失败',
+      }
+    }
+  }
+
+  /**
+   * 获取历史订单
+   */
+  async getHistoryOrders(days: number = 30): Promise<ApiResponse<{ orders: Order[] }>> {
+    try {
+      const response = await apiClient.get(`/api/orders/history?days=${days}`)
+      console.log('后端原始history orders响应:', response.data)
+      
+      // 将后端返回的下划线命名转换为驼峰命名
+      const ordersData = response.data.orders || []
+      const camelOrders = ordersData.map((order: any) => snakeToCamel(order))
+      
+      return {
+        success: true,
+        data: {
+          orders: camelOrders
+        },
+      }
+    } catch (error) {
+      console.error('Get history orders error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '获取历史订单失败',
       }
     }
   }

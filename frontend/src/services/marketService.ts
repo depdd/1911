@@ -279,6 +279,7 @@ class WebSocketService {
       time: time, // 秒级时间戳
       volume: volume,
       volume_real: volume,
+      volumeReal: volume, // 添加驼峰命名的字段，与类型定义一致
     }
   }
   

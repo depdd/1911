@@ -158,9 +158,13 @@ class MT5Client:
     async def get_history_orders(self, date_from: datetime, date_to: datetime) -> List[Dict]:
         """获取历史订单"""
         try:
+            logger.info(f"获取历史订单: {date_from} 到 {date_to}")
             history_orders = mt5.history_orders_get(date_from, date_to)
+            logger.info(f"MT5返回: {history_orders}")
             if history_orders is None:
+                logger.warning("MT5返回None，可能没有历史订单")
                 return []
+            logger.info(f"获取到 {len(history_orders)} 个历史订单")
             
             result = []
             for order in history_orders:
