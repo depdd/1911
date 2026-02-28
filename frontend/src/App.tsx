@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout, Spin } from 'antd'
 import styled from 'styled-components'
-import { theme } from './styles/theme'
 
 import { useAuth } from './contexts/AuthContext'
 import { useWebSocket } from './contexts/WebSocketContext'
+import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import Sidebar from './components/Layout/Sidebar'
 import Header from './components/Layout/Header'
 import Dashboard from './components/Dashboard/Dashboard'
@@ -16,75 +16,71 @@ import Analytics from './components/Analytics/Analytics'
 import Settings from './components/Settings/Settings'
 import MT5Connection from './components/MT5Connection/MT5Connection'
 
-
 const { Content } = Layout
 
-const AppLayout = styled(Layout)`
+const AppLayout = styled(Layout)<{ $background: string }>`
   min-height: 100vh;
-  background: ${theme.colors.background};
+  background: ${props => props.$background};
 `
 
-const AppContent = styled(Content)`
+const AppContent = styled(Content)<{ $bgColor: string; $borderColor: string }>`
   margin: 24px;
   padding: 24px;
-  background: rgba(26, 31, 58, 0.6);
+  background: ${props => props.$bgColor};
   border-radius: 12px;
-  border: 1px solid rgba(0, 212, 255, 0.2);
+  border: 1px solid ${props => props.$borderColor};
   backdrop-filter: blur(10px);
   min-height: calc(100vh - 140px);
   overflow: auto;
 `
 
-const LoadingContainer = styled.div`
+const LoadingContainer = styled.div<{ $background: string }>`
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #0a0e1a 0%, #1a1f3a 100%);
+  background: ${props => props.$background};
 `
 
-const LoadingText = styled.div`
+const LoadingText = styled.div<{ $color: string }>`
   margin-left: 20px;
   font-size: 18px;
   font-weight: 500;
-  color: #00d4ff;
+  color: ${props => props.$color};
   letter-spacing: 1px;
 `
 
-const App: React.FC = () => {
+const AppContentWrapper: React.FC = () => {
   const { isAuthenticated, isLoading, checkAuthStatus } = useAuth()
   const { connect, isConnected } = useWebSocket()
+  const { theme } = useTheme()
   const [isAppLoading, setIsAppLoading] = useState(true)
 
   useEffect(() => {
     const initializeApp = async () => {
-    try {
-      // 检查认证状态
-      await checkAuthStatus()
-      
-      // 连接WebSocket
-      console.log('初始化应用，认证状态:', isAuthenticated)
-      // 无论认证状态如何，都尝试连接WebSocket（用于调试）
-      if (!isConnected) {
-        console.log('尝试连接WebSocket服务器: ws://localhost:65534')
-        connect('ws://localhost:65534')
+      try {
+        await checkAuthStatus()
+        
+        if (!isConnected) {
+          console.log('尝试连接WebSocket服务器: ws://localhost:65534')
+          connect('ws://localhost:65534')
+        }
+        
+        setIsAppLoading(false)
+      } catch (error) {
+        console.error('App initialization failed:', error)
+        setIsAppLoading(false)
       }
-      
-      setIsAppLoading(false)
-    } catch (error) {
-      console.error('App initialization failed:', error)
-      setIsAppLoading(false)
     }
-  }
 
     initializeApp()
   }, [])
 
   if (isAppLoading || isLoading) {
     return (
-      <LoadingContainer>
+      <LoadingContainer $background={theme.gradients.background}>
         <Spin size="large" />
-        <LoadingText>加载中...</LoadingText>
+        <LoadingText $color={theme.colors.primary}>加载中...</LoadingText>
       </LoadingContainer>
     )
   }
@@ -94,11 +90,14 @@ const App: React.FC = () => {
   }
 
   return (
-    <AppLayout>
+    <AppLayout $background={theme.colors.background}>
       <Sidebar />
       <Layout style={{ background: 'transparent' }}>
         <Header />
-        <AppContent>
+        <AppContent 
+          $bgColor={`${theme.colors.backgroundLight}cc`}
+          $borderColor={theme.colors.border}
+        >
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
@@ -111,6 +110,14 @@ const App: React.FC = () => {
         </AppContent>
       </Layout>
     </AppLayout>
+  )
+}
+
+const App: React.FC = () => {
+  return (
+    <ThemeProvider>
+      <AppContentWrapper />
+    </ThemeProvider>
   )
 }
 

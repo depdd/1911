@@ -106,14 +106,11 @@ class Strategy(Base):
     __tablename__ = 'strategies'
     
     id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False, unique=True)
-    description = Column(Text)
-    file_path = Column(String(255), nullable=False)
+    strategy_id = Column(String(100), nullable=False, unique=True, index=True)  # 唯一策略ID
+    name = Column(String(100), nullable=False)
+    template_id = Column(String(50), nullable=False)  # 策略模板ID
     parameters = Column(Text)  # JSON格式的参数配置
-    is_active = Column(Boolean, default=False)
-    is_public = Column(Boolean, default=False)
-    created_by = Column(String(100), nullable=False)
-    performance_data = Column(Text)  # JSON格式的绩效数据
+    status = Column(String(20), default='stopped')  # running/stopped/paused/error
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     

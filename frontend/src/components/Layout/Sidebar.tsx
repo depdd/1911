@@ -15,86 +15,102 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 
 import { useAuth } from '../../contexts/AuthContext'
-import { theme } from '../../styles/theme'
+import { useTheme } from '../../contexts/ThemeContext'
+import { useLanguage } from '../../contexts/LanguageContext'
 
 const { Sider } = Layout
 const { Text } = Typography
 
-const SidebarContainer = styled(Sider)<{ $collapsed: boolean }>`
-  background: rgba(10, 14, 26, 0.9) !important;
+const SidebarContainer = styled(Sider)<{ $collapsed: boolean; $background: string; $border: string }>`
+  background: ${props => props.$background} !important;
   backdrop-filter: blur(10px);
-  border-right: 1px solid ${theme.colors.border};
-  box-shadow: ${theme.shadows.md};
+  border-right: 1px solid ${props => props.$border};
   
   .ant-layout-sider-trigger {
-    background: ${theme.colors.backgroundLight} !important;
-    border-top: 1px solid ${theme.colors.border};
-    color: ${theme.colors.primary} !important;
+    background: ${props => props.$background} !important;
+    border-top: 1px solid ${props => props.$border};
   }
 `
 
-const LogoContainer = styled.div`
+const LogoContainer = styled.div<{ $border: string }>`
   display: flex;
   align-items: center;
   justify-content: center;
   height: 64px;
-  border-bottom: 1px solid ${theme.colors.border};
+  border-bottom: 1px solid ${props => props.$border};
   margin-bottom: 16px;
 `
 
-const LogoText = styled(Text)<{ $collapsed: boolean }>`
+const LogoText = styled(Text)<{ $collapsed: boolean; $primary: string }>`
   font-size: ${props => props.$collapsed ? '14px' : '18px'};
-  font-weight: ${theme.typography.fontWeight.bold};
-  color: ${theme.colors.primary};
+  font-weight: 600;
+  color: ${props => props.$primary};
   letter-spacing: ${props => props.$collapsed ? '0' : '1px'};
-  transition: all ${theme.animations.duration.normal} ${theme.animations.easing.easeOut};
+  transition: all 0.3s ease;
 `
 
-const UserInfo = styled.div<{ $collapsed: boolean }>`
+const UserInfo = styled.div<{ $collapsed: boolean; $border: string }>`
   padding: 16px;
-  border-top: 1px solid ${theme.colors.border};
+  border-top: 1px solid ${props => props.$border};
   margin-top: auto;
   
   .ant-avatar {
-    background: ${theme.colors.primary};
     margin-bottom: ${props => props.$collapsed ? '0' : '8px'};
   }
 `
 
-const UserName = styled(Text)<{ $collapsed: boolean }>`
+const UserName = styled(Text)<{ $collapsed: boolean; $textSecondary: string }>`
   display: ${props => props.$collapsed ? 'none' : 'block'};
-  font-size: ${theme.typography.fontSize.sm};
-  color: ${theme.colors.textSecondary};
+  font-size: 14px;
+  color: ${props => props.$textSecondary};
   text-align: center;
   margin-bottom: 8px;
 `
 
-const MenuContainer = styled(Menu)`
+const MenuContainer = styled(Menu)<{ $primary: string; $textSecondary: string; $border: string }>`
   background: transparent !important;
   border: none !important;
   
   .ant-menu-item {
     margin: 4px 8px !important;
-    border-radius: ${theme.borderRadius.md} !important;
+    border-radius: 8px !important;
     
     &:hover {
-      background: rgba(0, 212, 255, 0.1) !important;
-      color: ${theme.colors.primary} !important;
+      background: ${props => props.$primary}20 !important;
+      color: ${props => props.$primary} !important;
     }
     
     &.ant-menu-item-selected {
-      background: rgba(0, 212, 255, 0.2) !important;
-      color: ${theme.colors.primary} !important;
+      background: ${props => props.$primary}30 !important;
+      color: ${props => props.$primary} !important;
       
       .anticon {
-        color: ${theme.colors.primary} !important;
+        color: ${props => props.$primary} !important;
       }
     }
     
     .anticon {
       font-size: 16px;
-      color: ${theme.colors.textSecondary};
+      color: ${props => props.$textSecondary};
     }
+  }
+`
+
+const CollapseButton = styled(Button)<{ $primary: string }>`
+  color: ${props => props.$primary} !important;
+  
+  &:hover {
+    color: ${props => props.$primary} !important;
+    background: ${props => props.$primary}20 !important;
+  }
+`
+
+const LogoutButton = styled(Button)<{ $textSecondary: string; $primary: string }>`
+  color: ${props => props.$textSecondary} !important;
+  font-size: 14px !important;
+  
+  &:hover {
+    color: ${props => props.$primary} !important;
   }
 `
 
@@ -103,37 +119,39 @@ const Sidebar: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
+  const { theme } = useTheme()
+  const { t } = useLanguage()
 
   const menuItems = [
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
-      label: '仪表板',
+      label: t('menu.dashboard'),
     },
     {
       key: '/market',
       icon: <LineChartOutlined />,
-      label: '行情数据',
+      label: t('menu.market'),
     },
     {
       key: '/trading',
       icon: <SwapOutlined />,
-      label: '交易面板',
+      label: t('menu.trading'),
     },
     {
       key: '/strategies',
       icon: <RobotOutlined />,
-      label: '策略商店',
+      label: t('menu.strategies'),
     },
     {
       key: '/analytics',
       icon: <BarChartOutlined />,
-      label: '数据分析',
+      label: t('menu.analytics'),
     },
     {
       key: '/settings',
       icon: <SettingOutlined />,
-      label: '系统设置',
+      label: t('menu.settings'),
     },
   ]
 
@@ -151,10 +169,17 @@ const Sidebar: React.FC = () => {
   }
 
   return (
-    <SidebarContainer $collapsed={collapsed} collapsible trigger={null} collapsed={collapsed}>
-      <LogoContainer>
-        <LogoText $collapsed={collapsed}>
-          {collapsed ? 'FX' : 'FX 量化交易'}
+    <SidebarContainer 
+      $collapsed={collapsed} 
+      $background={`${theme.colors.background}ee`}
+      $border={theme.colors.border}
+      collapsible 
+      trigger={null} 
+      collapsed={collapsed}
+    >
+      <LogoContainer $border={theme.colors.border}>
+        <LogoText $collapsed={collapsed} $primary={theme.colors.primary}>
+          {collapsed ? 'FX' : t('appName')}
         </LogoText>
       </LogoContainer>
 
@@ -164,41 +189,45 @@ const Sidebar: React.FC = () => {
         items={menuItems}
         onClick={({ key }) => handleMenuClick(key)}
         inlineCollapsed={collapsed}
+        $primary={theme.colors.primary}
+        $textSecondary={theme.colors.textSecondary}
+        $border={theme.colors.border}
       />
 
-      <UserInfo $collapsed={collapsed}>
+      <UserInfo $collapsed={collapsed} $border={theme.colors.border}>
         <Space direction="vertical" align="center" style={{ width: '100%' }}>
-          <Avatar size={collapsed ? 32 : 40}>
+          <Avatar 
+            size={collapsed ? 32 : 40}
+            style={{ backgroundColor: theme.colors.primary }}
+          >
             {user?.username?.charAt(0)?.toUpperCase() || 'U'}
           </Avatar>
-          <UserName $collapsed={collapsed}>
+          <UserName $collapsed={collapsed} $textSecondary={theme.colors.textSecondary}>
             {user?.username || 'Trader'}
           </UserName>
           {!collapsed && (
-            <Button
+            <LogoutButton
               type="text"
               icon={<LogoutOutlined />}
               onClick={handleLogout}
-              style={{
-                color: theme.colors.textSecondary,
-                fontSize: theme.typography.fontSize.sm,
-              }}
+              $textSecondary={theme.colors.textSecondary}
+              $primary={theme.colors.primary}
             >
-              退出登录
-            </Button>
+              {t('logout')}
+            </LogoutButton>
           )}
         </Space>
       </UserInfo>
 
-      <Button
+      <CollapseButton
         type="text"
         icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
         onClick={() => setCollapsed(!collapsed)}
+        $primary={theme.colors.primary}
         style={{
           position: 'absolute',
           bottom: '16px',
-          right: collapsed ? '16px' : '16px',
-          color: theme.colors.primary,
+          right: '16px',
           fontSize: '16px',
         }}
       />

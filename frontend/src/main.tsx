@@ -8,8 +8,9 @@ import { GlobalStyles } from './styles/GlobalStyles'
 import { theme } from './styles/theme'
 import { AuthProvider } from './contexts/AuthContext'
 import { WebSocketProvider } from './contexts/WebSocketContext'
+import { LanguageProvider } from './contexts/LanguageContext'
+import './i18n'
 
-// 配置Ant Design主题
 const antdTheme = {
   token: {
     colorPrimary: '#00d4ff',
@@ -79,8 +80,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <ThemeProvider theme={theme}>
           <AuthProvider>
             <WebSocketProvider>
-              <GlobalStyles />
-              <App />
+              <LanguageProvider>
+                <GlobalStyles />
+                <App />
+              </LanguageProvider>
             </WebSocketProvider>
           </AuthProvider>
         </ThemeProvider>

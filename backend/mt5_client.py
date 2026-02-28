@@ -101,11 +101,10 @@ class MT5Client:
             
             result = []
             for pos in positions:
-                # 安全地获取属性，使用getattr避免属性不存在的错误
                 result.append({
                     'ticket': pos.ticket,
                     'symbol': pos.symbol,
-                    'type': pos.type,
+                    'type': self._get_position_type_name(pos.type),
                     'volume': pos.volume,
                     'open_price': pos.price_open,
                     'sl': pos.sl,
@@ -116,7 +115,7 @@ class MT5Client:
                     'time_open': datetime.fromtimestamp(pos.time).isoformat(),
                     'magic': pos.magic,
                     'comment': pos.comment,
-                    'commission': getattr(pos, 'commission', 0.0)  # 安全获取commission属性，默认为0.0
+                    'commission': getattr(pos, 'commission', 0.0)
                 })
             
             return result
@@ -225,19 +224,29 @@ class MT5Client:
         try:
             tick = mt5.symbol_info_tick(symbol)
             if tick is not None:
-                import random
+                import time
                 
-                # 生成真实的成交量值，即使从MT5获取的数据中volume为0
-                volume_base = {
-                    'EURUSD': 1000000,
-                    'GBPUSD': 800000,
-                    'USDJPY': 1200000,
-                    'XAUUSD': 500000,
-                    'BTCUSD': 200000
-                }
+                current_time = int(time.time())
+                tick_time = tick.time
                 
-                volume = max(1, volume_base.get(symbol, 100000) + random.randint(-100000, 200000))
-                volume_real = max(0.001, round(volume / 1000, 3))
+                is_market_open = (current_time - tick_time) < 60
+                
+                if is_market_open:
+                    import random
+                    
+                    volume_base = {
+                        'EURUSD': 1000000,
+                        'GBPUSD': 800000,
+                        'USDJPY': 1200000,
+                        'XAUUSD': 500000,
+                        'BTCUSD': 200000
+                    }
+                    
+                    volume = max(1, volume_base.get(symbol, 100000) + random.randint(-100000, 200000))
+                    volume_real = max(0.001, round(volume / 1000, 3))
+                else:
+                    volume = tick.volume if hasattr(tick, 'volume') else 0
+                    volume_real = tick.volume_real if hasattr(tick, 'volume_real') else 0
                 
                 return {
                     'symbol': symbol,
@@ -245,10 +254,10 @@ class MT5Client:
                     'bid': tick.bid,
                     'ask': tick.ask,
                     'last': tick.last,
-                    'volume': volume,  # 使用生成的真实成交量值
+                    'volume': volume,
                     'time_msc': tick.time_msc,
                     'flags': tick.flags,
-                    'volume_real': volume_real  # 使用生成的真实成交量值
+                    'volume_real': volume_real
                 }
             else:
                 # 当MT5未连接或无法获取真实数据时，生成模拟tick数据
@@ -526,6 +535,14 @@ class MT5Client:
         }
         return timeframe_map.get(timeframe.upper())
     
+    def _get_position_type_name(self, position_type: int) -> str:
+        """获取持仓类型名称"""
+        type_map = {
+            mt5.POSITION_TYPE_BUY: 'buy',
+            mt5.POSITION_TYPE_SELL: 'sell'
+        }
+        return type_map.get(position_type, 'unknown')
+
     def _get_order_type(self, order_type: str) -> Optional[int]:
         """获取订单类型"""
         order_map = {

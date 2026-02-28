@@ -14,6 +14,9 @@ from mt5_client import mt5_client
 from websocket_server import WebSocketServer
 from api.dashboard import dashboard_bp
 from api.market import market_bp
+from api.strategy import strategy_bp
+from api.analytics import analytics_bp
+from api.settings import settings_bp
 
 # 配置和初始化
 config = get_config()
@@ -25,6 +28,7 @@ CORS(app)
 
 # 初始化数据库
 db_manager = DatabaseManager(config.DATABASE_URL)
+app.config['db_manager'] = db_manager
 
 # 初始化Redis
 redis_client = redis.from_url(config.REDIS_URL, decode_responses=True)
@@ -47,6 +51,9 @@ logger.add(
 # 注册蓝图
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(market_bp)
+app.register_blueprint(strategy_bp)
+app.register_blueprint(analytics_bp)
+app.register_blueprint(settings_bp)
 
 @app.route('/')
 def index():

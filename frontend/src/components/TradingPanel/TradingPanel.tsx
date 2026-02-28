@@ -85,7 +85,6 @@ const TradingPanel: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [currentPrice, setCurrentPrice] = useState<TickData | null>(null)
-  const [previousPrice, setPreviousPrice] = useState<number | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [dayOpenPrice, setDayOpenPrice] = useState<number | null>(null) // 当日开盘价
@@ -205,10 +204,6 @@ const TradingPanel: React.FC = () => {
   // 处理实时价格更新
   const handleRealTimeTick = useCallback((tickData: TickData) => {
     if (tickData.symbol === form.getFieldValue('symbol')) {
-      // 保存前一个价格用于计算涨跌幅
-      if (lastPriceRef.current !== null) {
-        setPreviousPrice(lastPriceRef.current)
-      }
       // 更新当前价格前先保存到 ref
       lastPriceRef.current = tickData.bid
       setCurrentPrice(tickData)

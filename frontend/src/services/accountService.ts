@@ -197,6 +197,171 @@ export class AccountService {
   }
 
   /**
+   * 获取资金曲线数据
+   */
+  async getEquityCurve(days: number = 30): Promise<ApiResponse<{
+    equityCurve: Array<{
+      date: string
+      profit: number
+      cumulative: number
+      cumulativeProfit: number
+      tradeId: string
+      tradeTime: number
+      symbol?: string
+      type?: string
+    }>
+    dailyPnl: Array<{ date: string; profit: number }>
+    totalTrades: number
+    totalProfit: number
+    winRate: number
+    maxDrawdown: number
+    profitableTrades: number
+    losingTrades: number
+  }>> {
+    try {
+      const response = await apiClient.get(`/api/dashboard/performance?days=${days}`)
+      console.log('后端原始performance响应:', response.data)
+      
+      if (response.data.success && response.data.data) {
+        const data = response.data.data
+        
+        // 转换数据格式
+        const equityCurve = (data.equity_curve || []).map((item: any) => ({
+          date: item.date,
+          profit: item.profit,
+          cumulative: item.cumulative,
+          cumulativeProfit: item.cumulative_profit,
+          tradeId: item.trade_id,
+          tradeTime: item.trade_time,
+          symbol: item.symbol,
+          type: item.type
+        }))
+        
+        const dailyPnl = (data.daily_pnl || []).map((item: any) => ({
+          date: item.date,
+          profit: item.profit
+        }))
+        
+        return {
+          success: true,
+          data: {
+            equityCurve,
+            dailyPnl,
+            totalTrades: data.total_trades || 0,
+            totalProfit: data.total_profit || 0,
+            winRate: data.win_rate || 0,
+            maxDrawdown: data.max_drawdown || 0,
+            profitableTrades: data.profitable_trades || 0,
+            losingTrades: data.losing_trades || 0
+          }
+        }
+      }
+      
+      return {
+        success: true,
+        data: {
+          equityCurve: [],
+          dailyPnl: [],
+          totalTrades: 0,
+          totalProfit: 0,
+          winRate: 0,
+          maxDrawdown: 0,
+          profitableTrades: 0,
+          losingTrades: 0
+        }
+      }
+    } catch (error) {
+      console.error('Get equity curve error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '获取资金曲线失败',
+      }
+    }
+  }
+
+  /**
+   * 按日期范围获取资金曲线数据
+   */
+  async getEquityCurveByDateRange(startDate: string, endDate: string): Promise<ApiResponse<{
+    equityCurve: Array<{
+      date: string
+      profit: number
+      cumulative: number
+      cumulativeProfit: number
+      tradeId: string
+      tradeTime: number
+      symbol?: string
+      type?: string
+    }>
+    dailyPnl: Array<{ date: string; profit: number }>
+    totalTrades: number
+    totalProfit: number
+    winRate: number
+    maxDrawdown: number
+    profitableTrades: number
+    losingTrades: number
+  }>> {
+    try {
+      const response = await apiClient.get(`/api/dashboard/performance?start_date=${startDate}&end_date=${endDate}`)
+      console.log('后端原始performance响应(日期范围):', response.data)
+      
+      if (response.data.success && response.data.data) {
+        const data = response.data.data
+        
+        const equityCurve = (data.equity_curve || []).map((item: any) => ({
+          date: item.date,
+          profit: item.profit,
+          cumulative: item.cumulative,
+          cumulativeProfit: item.cumulative_profit,
+          tradeId: item.trade_id,
+          tradeTime: item.trade_time,
+          symbol: item.symbol,
+          type: item.type
+        }))
+        
+        const dailyPnl = (data.daily_pnl || []).map((item: any) => ({
+          date: item.date,
+          profit: item.profit
+        }))
+        
+        return {
+          success: true,
+          data: {
+            equityCurve,
+            dailyPnl,
+            totalTrades: data.total_trades || 0,
+            totalProfit: data.total_profit || 0,
+            winRate: data.win_rate || 0,
+            maxDrawdown: data.max_drawdown || 0,
+            profitableTrades: data.profitable_trades || 0,
+            losingTrades: data.losing_trades || 0
+          }
+        }
+      }
+      
+      return {
+        success: true,
+        data: {
+          equityCurve: [],
+          dailyPnl: [],
+          totalTrades: 0,
+          totalProfit: 0,
+          winRate: 0,
+          maxDrawdown: 0,
+          profitableTrades: 0,
+          losingTrades: 0
+        }
+      }
+    } catch (error) {
+      console.error('Get equity curve by date range error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '获取资金曲线失败',
+      }
+    }
+  }
+
+  /**
    * 平仓指定持仓
    */
   async closePosition(ticket: string): Promise<ApiResponse> {

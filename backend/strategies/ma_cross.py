@@ -30,14 +30,42 @@ class MACrossStrategy:
         self.tp_pips = parameters.get('tp_pips', 100)
         self.timeframe = parameters.get('timeframe', 'H1')
         self.is_running = False
-        self.position = None  # 当前持仓
+        self.position = None
         
-        # 策略状态
         self.total_trades = 0
         self.winning_trades = 0
         self.losing_trades = 0
         self.total_profit = 0.0
         self.max_drawdown = 0.0
+    
+    def get_pip_value(self, symbol: str) -> float:
+        """获取点值 - 支持外汇、黄金、BTC"""
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            logger.error(f"无法获取 {symbol} 的信息")
+            return 0.0001
+        
+        digits = symbol_info.digits
+        
+        if 'BTC' in symbol or 'bitcoin' in symbol.lower():
+            return 1.0
+        elif 'XAU' in symbol or 'GOLD' in symbol.upper():
+            return 0.1
+        elif 'JPY' in symbol:
+            return 0.01
+        elif digits == 3 or digits == 5:
+            return 0.00001
+        else:
+            return 0.0001
+    
+    def get_min_sl_distance(self, symbol: str) -> float:
+        """获取最小止损距离（点数乘数）"""
+        if 'BTC' in symbol or 'bitcoin' in symbol.lower():
+            return 100
+        elif 'XAU' in symbol or 'GOLD' in symbol.upper():
+            return 50
+        else:
+            return 1
         
     def calculate_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
         """计算技术指标"""
@@ -74,7 +102,7 @@ class MACrossStrategy:
             
             # 检查是否有交叉信号
             if current_cross != 0:
-                # 金叉 - 买入信号
+                pip_value = self.get_pip_value(self.symbol)
                 if current_cross > 0 and self.position != 'long':
                     signal = Signal(
                         type='buy',
@@ -83,13 +111,12 @@ class MACrossStrategy:
                         timestamp=datetime.now(),
                         strategy=self.name,
                         confidence=0.8,
-                        sl=current_price - self.sl_pips * 0.0001,  # 简化计算
-                        tp=current_price + self.tp_pips * 0.0001
+                        sl=current_price - self.sl_pips * pip_value,
+                        tp=current_price + self.tp_pips * pip_value
                     )
                     signals.append(signal)
                     logger.info(f"生成买入信号: {self.symbol} @ {current_price}")
                 
-                # 死叉 - 卖出信号
                 elif current_cross < 0 and self.position != 'short':
                     signal = Signal(
                         type='sell',
@@ -98,8 +125,8 @@ class MACrossStrategy:
                         timestamp=datetime.now(),
                         strategy=self.name,
                         confidence=0.8,
-                        sl=current_price + self.sl_pips * 0.0001,
-                        tp=current_price - self.tp_pips * 0.0001
+                        sl=current_price + self.sl_pips * pip_value,
+                        tp=current_price - self.tp_pips * pip_value
                     )
                     signals.append(signal)
                     logger.info(f"生成卖出信号: {self.symbol} @ {current_price}")

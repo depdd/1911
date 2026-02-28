@@ -11,15 +11,16 @@ import {
 import styled from 'styled-components'
 
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { theme } from '../../styles/theme'
+import { useTheme } from '../../contexts/ThemeContext'
+import { useLanguage } from '../../contexts/LanguageContext'
 
 const { Header: AntHeader } = Layout
 const { Text } = Typography
 
-const HeaderContainer = styled(AntHeader)`
-  background: rgba(10, 14, 26, 0.8) !important;
+const HeaderContainer = styled(AntHeader)<{ $background: string; $border: string }>`
+  background: ${props => props.$background} !important;
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid ${theme.colors.border};
+  border-bottom: 1px solid ${props => props.$border};
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -39,38 +40,49 @@ const HeaderRight = styled.div`
   gap: 16px;
 `
 
-const ConnectionStatus = styled.div<{ $connected: boolean }>`
+const ConnectionStatus = styled.div<{ $connected: boolean; $success: string; $error: string; $border: string }>`
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: rgba(26, 31, 58, 0.6);
-  border: 1px solid ${props => props.$connected ? theme.colors.success : theme.colors.error};
-  border-radius: ${theme.borderRadius.md};
+  background: ${props => props.$connected ? `${props.$success}20` : `${props.$error}20`};
+  border: 1px solid ${props => props.$connected ? props.$success : props.$error};
+  border-radius: 8px;
   backdrop-filter: blur(5px);
   
   .anticon {
-    color: ${props => props.$connected ? theme.colors.success : theme.colors.error};
+    color: ${props => props.$connected ? props.$success : props.$error};
     animation: ${props => props.$connected ? 'pulse 2s infinite' : 'none'};
   }
   
   .status-text {
-    color: ${props => props.$connected ? theme.colors.success : theme.colors.error};
-    font-size: ${theme.typography.fontSize.sm};
-    font-weight: ${theme.typography.fontWeight.medium};
+    color: ${props => props.$connected ? props.$success : props.$error};
+    font-size: 14px;
+    font-weight: 500;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
 `
 
-// 已移除账户信息相关样式组件
+const ActionButton = styled(Button)<{ $textSecondary: string; $primary: string }>`
+  color: ${props => props.$textSecondary} !important;
+  
+  &:hover {
+    color: ${props => props.$primary} !important;
+    background: ${props => props.$primary}20 !important;
+  }
+`
 
 const Header: React.FC = () => {
   const { isConnected, connect } = useWebSocket()
-  const [isDarkMode, setIsDarkMode] = useState(true)
+  const { theme, setTheme, isDark } = useTheme()
+  const { t } = useLanguage()
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  // 自动连接WebSocket
   useEffect(() => {
-    // 立即连接，不依赖isConnected状态
     if (!isConnected) {
       console.log('尝试连接WebSocket服务器: ws://localhost:65534')
       connect('ws://localhost:65534')
@@ -79,66 +91,63 @@ const Header: React.FC = () => {
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
-    // 这里可以添加刷新数据的逻辑
     setTimeout(() => setIsRefreshing(false), 1000)
   }
 
   const handleThemeToggle = (checked: boolean) => {
-    setIsDarkMode(checked)
-    // 这里可以添加主题切换逻辑
+    setTheme(checked ? 'dark' : 'light')
   }
 
-  // 已移除formatCurrency函数，因为不再需要格式化账户余额
-
   return (
-    <HeaderContainer>
+    <HeaderContainer $background={`${theme.colors.background}cc`} $border={theme.colors.border}>
       <HeaderLeft>
-        <ConnectionStatus $connected={isConnected}>
+        <ConnectionStatus 
+          $connected={isConnected}
+          $success={theme.colors.success}
+          $error={theme.colors.error}
+          $border={theme.colors.border}
+        >
           {isConnected ? <WifiOutlined /> : <DisconnectOutlined />}
           <Text className="status-text">
-            {isConnected ? '已连接' : '未连接'}
+            {isConnected ? t('connection.connected') : t('connection.disconnected')}
           </Text>
         </ConnectionStatus>
       </HeaderLeft>
 
       <HeaderRight>
         <Space>
-          <Tooltip title="刷新数据">
-            <Button
+          <Tooltip title={t('common.loading')}>
+            <ActionButton
               type="text"
               icon={<SyncOutlined spin={isRefreshing} />}
               onClick={handleRefresh}
-              style={{
-                color: theme.colors.textSecondary,
-              }}
+              $textSecondary={theme.colors.textSecondary}
+              $primary={theme.colors.primary}
             />
           </Tooltip>
 
-          <Tooltip title="通知">
+          <Tooltip title={t('common.info')}>
             <Badge count={0} size="small">
-              <Button
+              <ActionButton
                 type="text"
                 icon={<BellOutlined />}
-                style={{
-                  color: theme.colors.textSecondary,
-                }}
+                $textSecondary={theme.colors.textSecondary}
+                $primary={theme.colors.primary}
               />
             </Badge>
           </Tooltip>
 
-          <Tooltip title="主题切换">
+          <Tooltip title={t('settings.theme')}>
             <Switch
-              checked={isDarkMode}
+              checked={isDark}
               onChange={handleThemeToggle}
               checkedChildren={<MoonOutlined />}
               unCheckedChildren={<SunOutlined />}
               style={{
-                background: isDarkMode ? theme.colors.primary : theme.colors.warning,
+                background: isDark ? theme.colors.primary : theme.colors.warning,
               }}
             />
           </Tooltip>
-
-          {/* 已移除右上角的余额和净值显示 */}
         </Space>
       </HeaderRight>
     </HeaderContainer>

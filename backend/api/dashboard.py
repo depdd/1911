@@ -106,12 +106,23 @@ def get_dashboard_performance():
     """获取仪表板性能数据"""
     try:
         days = request.args.get('days', 30, type=int)
+        start_date_str = request.args.get('start_date')
+        end_date_str = request.args.get('end_date')
         
-        # 获取历史交易数据
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
+        if start_date_str and end_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+                end_date = end_date.replace(hour=23, minute=59, second=59)
+                logger.info(f"使用自定义日期范围: {start_date_str} 到 {end_date_str}")
+            except ValueError as e:
+                logger.error(f"日期格式错误: {e}")
+                return jsonify({'success': False, 'error': '日期格式错误，请使用YYYY-MM-DD格式'}), 400
+        else:
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
         
-        logger.info(f"正在从MT5获取{days}天内的历史交易数据")
+        logger.info(f"正在从MT5获取历史交易数据，时间范围: {start_date} 到 {end_date}")
         deals = asyncio.run(mt5_client.get_history_deals(start_date, end_date))
         
         logger.info(f"原始获取到{len(deals)}笔历史交易")

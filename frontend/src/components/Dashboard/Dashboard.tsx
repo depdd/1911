@@ -12,11 +12,12 @@ import styled from 'styled-components'
 
 import { useAuth } from '../../contexts/AuthContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { Position, Account, Trade } from '../../types'
+import { useTheme } from '../../contexts/ThemeContext'
+import { useLanguage } from '../../contexts/LanguageContext'
+import { Position, Account } from '../../types'
 import { accountService } from '../../services/accountService'
 import EquityChart from './EquityChart'
 import QuickTradePanel from './QuickTradePanel'
-import { theme } from '../../styles/theme'
 
 const { Title, Text } = Typography
 
@@ -32,11 +33,11 @@ const DashboardHeader = styled.div`
   margin-bottom: 24px;
 `
 
-const StatCard = styled(Card)`
-  background: rgba(26, 31, 58, 0.6);
-  border: 1px solid ${theme.colors.border};
+const StatCard = styled(Card)<{ $border: string; $bgColor: string }>`
+  background: ${props => props.$bgColor};
+  border: 1px solid ${props => props.$border};
   backdrop-filter: blur(10px);
-  border-radius: ${theme.borderRadius.lg};
+  border-radius: 12px;
   height: 100%;
   
   .ant-card-body {
@@ -44,155 +45,81 @@ const StatCard = styled(Card)`
   }
   
   .ant-statistic-title {
-    color: ${theme.colors.textSecondary};
-    font-size: ${theme.typography.fontSize.sm};
+    font-size: 14px;
     margin-bottom: 8px;
   }
   
   .ant-statistic-content {
-    color: ${theme.colors.text};
-    font-size: ${theme.typography.fontSize.xxl};
-    font-weight: ${theme.typography.fontWeight.bold};
-  }
-  
-  .ant-statistic-content-prefix {
-    color: ${theme.colors.textSecondary};
+    font-size: 24px;
+    font-weight: 600;
   }
 `
 
-const PositionsCard = styled(Card)`
-  background: rgba(26, 31, 58, 0.6);
-  border: 1px solid ${theme.colors.border};
+const PositionsCard = styled(Card)<{ $border: string; $bgColor: string }>`
+  background: ${props => props.$bgColor};
+  border: 1px solid ${props => props.$border};
   backdrop-filter: blur(10px);
-  border-radius: ${theme.borderRadius.lg};
+  border-radius: 12px;
   
   .ant-card-head {
     background: transparent;
-    border-bottom: 1px solid ${theme.colors.border};
-    
-    .ant-card-head-title {
-      color: ${theme.colors.text};
-      font-weight: ${theme.typography.fontWeight.semibold};
-    }
+    border-bottom: 1px solid ${props => props.$border};
   }
 `
 
 const Dashboard: React.FC = () => {
   const { account, updateAccount } = useAuth()
-  // 暂时不使用WebSocket功能，只保留钩子调用
-  useWebSocket();
+  useWebSocket()
+  const { theme } = useTheme()
+  const { t } = useLanguage()
   const [positions, setPositions] = useState<Position[]>([])
-  const [trades, setTrades] = useState<Trade[]>([])
-  // 移除未使用的加载状态
   
-  // 使用ref保存最新的account引用，避免闭包问题
   const accountRef = useRef(account)
   
-  // 当account变化时更新ref
   useEffect(() => {
     accountRef.current = account
   }, [account])
 
-  // 使用useCallback包装加载数据函数，避免每次渲染都重新创建
   const loadAccountData = useCallback(async () => {
     const currentAccount = accountRef.current
     if (!currentAccount) return
 
     try {
-      // 分离Promise.all调用，以便单独调试每个API响应
-      const positionsResponse = await accountService.getPositions();
-      console.log('🚀 positionsResponse 完整结构:', JSON.stringify(positionsResponse, null, 2));
+      const positionsResponse = await accountService.getPositions()
+      const positionsData = positionsResponse.data?.positions || []
+      setPositions(positionsData)
       
-      // 检查positions字段路径
-      console.log('🚀 positionsResponse.data 存在吗:', positionsResponse.data !== undefined && positionsResponse.data !== null);
-      console.log('🚀 positionsResponse.data 类型:', typeof positionsResponse.data);
-      console.log('🚀 positionsResponse.data 内容:', positionsResponse.data);
-      
-      // 检查positions字段
-      const positionsField = positionsResponse.data?.positions;
-      console.log('🚀 positionsResponse.data?.positions 存在吗:', positionsField !== undefined && positionsField !== null);
-      console.log('🚀 positionsResponse.data?.positions 类型:', typeof positionsField);
-      console.log('🚀 positionsResponse.data?.positions 是否为数组:', Array.isArray(positionsField));
-      console.log('🚀 positionsResponse.data?.positions 内容:', positionsField);
-      
-      // 如果positions存在且是数组，打印第一个元素的结构以验证类型匹配
-      if (Array.isArray(positionsField) && positionsField.length > 0) {
-        console.log('🚀 第一个position元素结构:', JSON.stringify(positionsField[0], null, 2));
-      }
-      
-      // 尝试获取positions数据
-      const positionsData = positionsField || [];
-      console.log('🚀 最终设置的positions数据:', positionsData);
-      setPositions(positionsData);
-      
-      // 获取账户摘要
-      const summaryResponse = await accountService.getAccountSummary();
-      console.log('🚀 summaryResponse 完整结构:', JSON.stringify(summaryResponse, null, 2));
+      const summaryResponse = await accountService.getAccountSummary()
 
       if (summaryResponse.success) {
-        // 更新全局账户信息
         const updatedAccount: Account = {
           ...currentAccount,
           balance: summaryResponse.data?.balance || 0,
           equity: summaryResponse.data?.equity || 0,
           margin: summaryResponse.data?.margin || 0,
-          freeMargin: summaryResponse.data?.freeMargin || 0, // 使用转换后的camelCase字段名
-          marginLevel: summaryResponse.data?.marginLevel || 0, // 使用转换后的camelCase字段名
+          freeMargin: summaryResponse.data?.freeMargin || 0,
+          marginLevel: summaryResponse.data?.marginLevel || 0,
         }
         updateAccount(updatedAccount)
       }
-      
-      // 获取交易历史数据用于资金曲线
-      const tradesResponse = await accountService.getTrades(30); // 获取最近30天的交易
-      console.log('🚀 tradesResponse 完整结构:', JSON.stringify(tradesResponse, null, 2));
-      
-      if (tradesResponse.success && tradesResponse.data?.trades) {
-        setTrades(tradesResponse.data.trades);
-        console.log('设置交易历史数据，数量:', tradesResponse.data.trades.length);
-      }
     } catch (error) {
-      console.error('Failed to load account data:', error);
-      // 添加更详细的错误信息
-      if (error instanceof Error) {
-        console.error('错误名称:', error.name);
-        console.error('错误消息:', error.message);
-        console.error('错误堆栈:', error.stack);
-      }
+      console.error('Failed to load account data:', error)
     }
   }, [updateAccount])
 
-  // 暂时禁用自动刷新机制
-  // useEffect(() => {
-  //   // 只在组件挂载时执行一次初始加载
-  //   if (account) {
-  //     loadAccountData()
-  //   }
-  //   
-  //   // 每30秒刷新一次数据
-  //   const interval = setInterval(() => {
-  //     loadAccountData()
-  //   }, 30000)
-  //   
-  //   return () => clearInterval(interval)
-  // }, [loadAccountData])
-
-  // 移除消息处理相关代码，只保留手动刷新功能
-  const processingTimerRef = useRef<number | null>(null);
+  const processingTimerRef = useRef<number | null>(null)
   
-  // 组件挂载时加载一次数据，使用正确的依赖数组
   useEffect(() => {
-    // 当account存在时执行加载数据
     if (account) {
-      loadAccountData();
+      loadAccountData()
     }
     
-    // 组件卸载时清理
     return () => {
       if (processingTimerRef.current) {
-        window.clearTimeout(processingTimerRef.current);
+        window.clearTimeout(processingTimerRef.current)
       }
     }
-  }, [account, loadAccountData]); // 添加account和loadAccountData到依赖数组，确保当它们变化时重新执行
+  }, [account, loadAccountData])
 
   const formatCurrency = (value: number, currency: string = 'USD') => {
     return new Intl.NumberFormat('zh-CN', {
@@ -200,7 +127,7 @@ const Dashboard: React.FC = () => {
       currency: currency,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
-    }).format(value);
+    }).format(value)
   }
 
   const getProfitColor = (profit: number) => {
@@ -211,7 +138,7 @@ const Dashboard: React.FC = () => {
 
   const columns = [
     {
-      title: '品种',
+      title: t('dashboard.symbol'),
       dataIndex: 'symbol',
       key: 'symbol',
       render: (symbol: string) => (
@@ -221,25 +148,35 @@ const Dashboard: React.FC = () => {
       ),
     },
     {
-      title: '方向',
+      title: t('trading.orderType'),
       dataIndex: 'type',
       key: 'type',
       render: (type: string) => (
         <Tag color={type === 'buy' ? 'green' : 'red'}>
-          {type === 'buy' ? '买入' : '卖出'}
+          {type === 'buy' ? t('trading.buy') : t('trading.sell')}
         </Tag>
       ),
     },
     {
-      title: '手数',
+      title: t('dashboard.lots'),
       dataIndex: 'volume',
       key: 'volume',
       render: (volume: number) => (volume !== undefined && volume !== null ? volume.toFixed(2) : '0.00'),
     },
-    {      title: '开仓价',      dataIndex: 'openPrice',      key: 'openPrice',      render: (price: number) => (price !== undefined && price !== null ? price.toFixed(5) : '0.00000'),    },
-    {      title: '当前价',      dataIndex: 'currentPrice',      key: 'currentPrice',      render: (price: number) => (price !== undefined && price !== null ? price.toFixed(5) : '0.00000'),    },
     {
-      title: '盈亏',
+      title: t('dashboard.openPrice'),
+      dataIndex: 'openPrice',
+      key: 'openPrice',
+      render: (price: number) => (price !== undefined && price !== null ? price.toFixed(5) : '0.00000'),
+    },
+    {
+      title: t('dashboard.currentPrice'),
+      dataIndex: 'currentPrice',
+      key: 'currentPrice',
+      render: (price: number) => (price !== undefined && price !== null ? price.toFixed(5) : '0.00000'),
+    },
+    {
+      title: t('common.profit'),
       dataIndex: 'profit',
       key: 'profit',
       render: (profit: number) => (
@@ -250,33 +187,31 @@ const Dashboard: React.FC = () => {
     },
   ]
 
-  // 计算持仓订单的总盈亏
   const totalProfit = positions.reduce((sum, pos) => sum + (pos.profit || 0), 0)
-  // 计算持仓订单的总手数
   const totalVolume = positions.reduce((sum, pos) => sum + (pos.volume || 0), 0)
 
   return (
     <DashboardContainer>
       <DashboardHeader>
         <Title level={2} style={{ color: theme.colors.text, margin: 0 }}>
-          交易仪表板
+          {t('dashboard.title')}
         </Title>
         <Space>
           <Button
             icon={<SyncOutlined />}
             onClick={loadAccountData}
+            style={{ color: theme.colors.textSecondary }}
           >
-            刷新数据
+            {t('common.loading')}
           </Button>
         </Space>
       </DashboardHeader>
 
-      {/* 账户概览 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} md={6}>
-          <StatCard>
+          <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
-              title="账户余额"
+              title={t('dashboard.balance')}
               value={account?.balance || 0}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
@@ -286,9 +221,9 @@ const Dashboard: React.FC = () => {
           </StatCard>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <StatCard>
+          <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
-              title="净值"
+              title={t('dashboard.equity')}
               value={account?.equity || 0}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
@@ -298,9 +233,9 @@ const Dashboard: React.FC = () => {
           </StatCard>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <StatCard>
+          <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
-              title="可用保证金"
+              title={t('dashboard.freeMargin')}
               value={account?.freeMargin || 0}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
@@ -310,9 +245,9 @@ const Dashboard: React.FC = () => {
           </StatCard>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <StatCard>
+          <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
-              title="保证金比例"
+              title={t('dashboard.marginLevel')}
               value={account?.marginLevel || 0}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
@@ -323,12 +258,11 @@ const Dashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 持仓概览 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} md={8}>
-          <StatCard>
+          <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
-              title="持仓订单数量"
+              title={t('dashboard.positions')}
               value={positions.length}
               valueStyle={{ color: theme.colors.text }}
               prefix={<RiseOutlined style={{ color: theme.colors.primary }} />}
@@ -336,9 +270,9 @@ const Dashboard: React.FC = () => {
           </StatCard>
         </Col>
         <Col xs={24} sm={12} md={8}>
-          <StatCard>
+          <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
-              title="总手数"
+              title={t('dashboard.lots')}
               value={totalVolume}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
@@ -347,9 +281,9 @@ const Dashboard: React.FC = () => {
           </StatCard>
         </Col>
         <Col xs={24} sm={12} md={8}>
-          <StatCard>
+          <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
-              title="总盈亏"
+              title={t('dashboard.profit')}
               value={totalProfit}
               precision={2}
               valueStyle={{ color: getProfitColor(totalProfit) }}
@@ -366,19 +300,19 @@ const Dashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 图表和快速交易 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={16}>
           <Card
-            title="资金曲线"
+            title={t('dashboard.equityCurve')}
             style={{
-              background: 'rgba(26, 31, 58, 0.6)',
+              background: `${theme.colors.backgroundLight}cc`,
               border: `1px solid ${theme.colors.border}`,
               backdropFilter: 'blur(10px)',
-              borderRadius: theme.borderRadius.lg,
+              borderRadius: 12,
             }}
+            headStyle={{ color: theme.colors.text }}
           >
-            <EquityChart trades={trades} />
+            <EquityChart />
           </Card>
         </Col>
         <Col xs={24} lg={8}>
@@ -386,15 +320,18 @@ const Dashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 当前持仓 */}
-      <PositionsCard title={`当前持仓 (${positions.length})`}>
+      <PositionsCard 
+        title={`${t('dashboard.positions')} (${positions.length})`}
+        $border={theme.colors.border}
+        $bgColor={`${theme.colors.backgroundLight}cc`}
+        headStyle={{ color: theme.colors.text }}
+      >
         <Table
           columns={columns}
           dataSource={positions}
           rowKey="ticket"
           pagination={false}
           scroll={{ x: 'max-content' }}
-          className="data-table"
           style={{ background: 'transparent' }}
         />
       </PositionsCard>
