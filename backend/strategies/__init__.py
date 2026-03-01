@@ -5,6 +5,7 @@ from strategies.martin_grid import martin_grid_manager, MartinGridStrategy
 from strategies.rsi_reversal import rsi_manager, RSIStrategy
 from strategies.bollinger_bands import bollinger_bands_manager, BollingerBandsStrategy
 from strategies.dual_grid_martin import dual_grid_martin_manager, DualGridMartinStrategy
+from strategies.linshu import create_strategy as linshu_manager, LinShuStrategy
 
 __all__ = [
     'ma_cross_manager',
@@ -16,5 +17,7 @@ __all__ = [
     'bollinger_bands_manager',
     'BollingerBandsStrategy',
     'dual_grid_martin_manager',
-    'DualGridMartinStrategy'
+    'DualGridMartinStrategy',
+    'linshu_manager',
+    'LinShuStrategy'
 ]
