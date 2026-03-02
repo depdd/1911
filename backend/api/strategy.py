@@ -42,6 +42,14 @@ STRATEGY_TEMPLATES = [
                 'required': True
             },
             {
+                'name': 'timeframe',
+                'label': 'K线周期',
+                'type': 'select',
+                'options': ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'],
+                'default': 'M1',
+                'required': True
+            },
+            {
                 'name': 'fast_period',
                 'label': '快速均线周期',
                 'type': 'number',
@@ -475,6 +483,7 @@ STRATEGY_TEMPLATES = [
         'risk_level': 'high',
         'default_parameters': {
             'symbol': 'EURUSD',
+            'timeframe': 'M1',
             'fixed_lot': 0.02,
             'add_space': 100,
             'take_profit': 200,
@@ -493,6 +502,14 @@ STRATEGY_TEMPLATES = [
                 'type': 'select',
                 'options': ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'],
                 'default': 'EURUSD',
+                'required': True
+            },
+            {
+                'name': 'timeframe',
+                'label': 'K线周期',
+                'type': 'select',
+                'options': ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'],
+                'default': 'M1',
                 'required': True
             },
             {

@@ -46,6 +46,7 @@ class LinShuStrategy:
         self.allow_buy = params.get('allow_buy', True)
         self.allow_sell = params.get('allow_sell', True)
         
+        self.timeframe = params.get('timeframe', 'M1')
         self.new_bar_filter = params.get('new_bar_filter', True)
         self.max_orders = params.get('max_orders', 100)
         self.add_space = params.get('add_space', 100)
@@ -99,14 +100,6 @@ class LinShuStrategy:
         
         self.total_buy_orders = 0
         self.total_sell_orders = 0
-        
-        self.Lpos = 0
-        self.Lpos1 = 0
-        self.Cpos = 0
-        
-        self.Lprofit = 0.0
-        self.Lprofit1 = 0.0
-        self.Cprofit = 0.0
         
         self.PriceTarget = 0.0
         self.AveragePrice = 0.0
@@ -563,104 +556,75 @@ class LinShuStrategy:
                     'current_ask': ask
                 })
     
-    def liding_profit_order(self, magic_number: int) -> int:
-        """找到最盈利的订单"""
-        self.Lprofit1 = 0
-        self.Lpos1 = 0
-        
-        positions = self.get_positions(magic_number)
-        
-        for pos in positions:
-            profit = pos.profit + getattr(pos, 'swap', 0) + getattr(pos, 'commission', 0)
-            
-            if profit > 0 and profit > self.Lprofit:
-                self.Lprofit1 = self.Lprofit
-                self.Lpos1 = self.Lpos
-                
-                self.Lprofit = profit
-                self.Lpos = pos.ticket
-        
-        return self.Lpos
-    
-    def close_profit_order(self, magic_number: int) -> int:
-        """找到最亏损的订单"""
-        self.Cprofit = 0
-        self.Cpos = 0
-        
-        positions = self.get_positions(magic_number)
-        
-        for pos in positions:
-            profit = pos.profit + getattr(pos, 'swap', 0) + getattr(pos, 'commission', 0)
-            
-            if profit < 0 and profit < self.Cprofit:
-                self.Cprofit = profit
-                self.Cpos = pos.ticket
-        
-        return self.Cpos
-    
-    def close_select_order(self, magic_number: int):
-        """分批平仓"""
+    def check_overlapping(self):
+        """分批止盈检查"""
         tick = mt5.symbol_info_tick(self.symbol)
         if tick is None:
             return
         
         bid, ask = tick.bid, tick.ask
         
-        positions = self.get_positions(magic_number)
-        pos_dict = {p.ticket: p for p in positions}
+        buy_positions = self.get_positions(self.buy_magic)
+        if len(buy_positions) >= 2:
+            self._process_overlapping(buy_positions, bid, True)
         
-        if self.Lpos in pos_dict:
-            pos = pos_dict[self.Lpos]
-            self.close_position(pos)
-        
-        if self.Lpos1 != 0 and self.Lpos1 in pos_dict:
-            pos = pos_dict[self.Lpos1]
-            self.close_position(pos)
-        
-        if self.Cpos in pos_dict:
-            pos = pos_dict[self.Cpos]
-            self.close_position(pos)
+        sell_positions = self.get_positions(self.sell_magic)
+        if len(sell_positions) >= 2:
+            self._process_overlapping(sell_positions, ask, False)
     
-    def check_overlapping(self):
-        """分批止盈检查"""
-        self.total_buy_orders = self.count_of_orders(self.buy_magic)
+    def _process_overlapping(self, positions, price, is_buy):
+        """处理分批止盈"""
+        profits = []
+        for pos in positions:
+            if is_buy:
+                profit = (price - pos.price_open) * pos.volume
+            else:
+                profit = (pos.price_open - price) * pos.volume
+            profits.append((pos, profit))
         
-        if self.total_buy_orders >= 2:
-            self.Lpos = 0
-            self.Cpos = 0
-            self.Lprofit = 0
-            self.Lprofit1 = 0
-            
-            self.Lpos = self.liding_profit_order(self.buy_magic)
-            self.Cpos = self.close_profit_order(self.buy_magic)
-            
-            if self.Lprofit > 0 and self.Lprofit1 <= 0:
-                if self.Lprofit + self.Cprofit > 0 and (self.Lprofit + self.Cprofit) * 100 / self.Lprofit > self.tp_percent:
-                    self.Lpos1 = 0
-                    self.close_select_order(self.buy_magic)
-            elif self.Lprofit > 0 and self.Lprofit1 > 0:
-                if self.Lprofit + self.Lprofit1 + self.Cprofit > 0 and (self.Lprofit + self.Lprofit1 + self.Cprofit) * 100 / (self.Lprofit + self.Lprofit1) > self.tp2_percent:
-                    self.close_select_order(self.buy_magic)
+        pos_profits = [(p, pf) for p, pf in profits if pf > 0]
+        if not pos_profits:
+            return
+        pos_profits.sort(key=lambda x: x[1], reverse=True)
+        Lpos, Lprofit = pos_profits[0]
+        Lpos1, Lprofit1 = (pos_profits[1] if len(pos_profits) > 1 else (None, 0))
         
-        self.total_sell_orders = self.count_of_orders(self.sell_magic)
+        neg_profits = [(p, pf) for p, pf in profits if pf < 0]
+        if not neg_profits:
+            return
+        neg_profits.sort(key=lambda x: x[1])
+        Cpos, Cprofit = neg_profits[0]
         
-        if self.total_sell_orders >= 2:
-            self.Lpos = 0
-            self.Cpos = 0
-            self.Lprofit = 0
-            self.Lprofit1 = 0
-            
-            self.Lpos = self.liding_profit_order(self.sell_magic)
-            self.Cpos = self.close_profit_order(self.sell_magic)
-            
-            if self.Lprofit > 0 and self.Lprofit1 <= 0:
-                if self.Lprofit + self.Cprofit > 0 and (self.Lprofit + self.Cprofit) * 100 / self.Lprofit > self.tp_percent:
-                    self.Lpos1 = 0
-                    self.close_select_order(self.sell_magic)
-            
-            if self.Lprofit > 0 and self.Lprofit1 > 0:
-                if self.Lprofit + self.Lprofit1 + self.Cprofit > 0 and (self.Lprofit + self.Lprofit1 + self.Cprofit) * 100 / (self.Lprofit + self.Lprofit1) > self.tp2_percent:
-                    self.close_select_order(self.sell_magic)
+        tp_percent = self.tp_percent / 100.0
+        tp2_percent = self.tp2_percent / 100.0
+        
+        if Lpos1 is None:
+            if Lprofit + Cprofit > 0 and (Lprofit + Cprofit) / Lprofit > tp_percent:
+                orders_to_close = {Lpos.ticket, Cpos.ticket}
+                for pos in positions:
+                    if pos.ticket in orders_to_close:
+                        self.close_position(pos)
+                logger.info(f"分批止盈类型1平仓 {len(orders_to_close)} 单")
+                log_trade(self.strategy_id, f"分批止盈类型1", {
+                    'count': len(orders_to_close),
+                    'Lprofit': Lprofit,
+                    'Cprofit': Cprofit,
+                    'ratio': (Lprofit + Cprofit) / Lprofit
+                })
+        else:
+            if Lprofit + Lprofit1 + Cprofit > 0 and (Lprofit + Lprofit1 + Cprofit) / (Lprofit + Lprofit1) > tp2_percent:
+                orders_to_close = {Lpos.ticket, Lpos1.ticket, Cpos.ticket}
+                for pos in positions:
+                    if pos.ticket in orders_to_close:
+                        self.close_position(pos)
+                logger.info(f"分批止盈类型2平仓 {len(orders_to_close)} 单")
+                log_trade(self.strategy_id, f"分批止盈类型2", {
+                    'count': len(orders_to_close),
+                    'Lprofit': Lprofit,
+                    'Lprofit1': Lprofit1,
+                    'Cprofit': Cprofit,
+                    'ratio': (Lprofit + Lprofit1 + Cprofit) / (Lprofit + Lprofit1)
+                })
     
     def draw_info(self):
         """更新统计信息"""
@@ -682,7 +646,18 @@ class LinShuStrategy:
     
     def check_new_bar(self) -> bool:
         """检查新K线"""
-        rates = mt5.copy_rates_from_pos(self.symbol, mt5.TIMEFRAME_M1, 0, 1)
+        timeframe_map = {
+            'M1': mt5.TIMEFRAME_M1,
+            'M5': mt5.TIMEFRAME_M5,
+            'M15': mt5.TIMEFRAME_M15,
+            'M30': mt5.TIMEFRAME_M30,
+            'H1': mt5.TIMEFRAME_H1,
+            'H4': mt5.TIMEFRAME_H4,
+            'D1': mt5.TIMEFRAME_D1,
+        }
+        mt5_timeframe = timeframe_map.get(self.timeframe, mt5.TIMEFRAME_M1)
+        
+        rates = mt5.copy_rates_from_pos(self.symbol, mt5_timeframe, 0, 1)
         if rates is None or len(rates) == 0:
             return False
         
