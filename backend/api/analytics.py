@@ -2,7 +2,7 @@
 数据分析API
 提供交易分析、风险评估、统计报告等功能
 """
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 from datetime import datetime, timedelta
 from loguru import logger
 from typing import Dict, List, Optional
@@ -11,6 +11,7 @@ import math
 from collections import defaultdict
 
 from mt5_client import mt5_client
+from api.auth import jwt_required, check_feature, get_db_session
 
 analytics_bp = Blueprint('analytics', __name__)
 
@@ -41,6 +42,8 @@ def get_date_range():
 
 
 @analytics_bp.route('/analytics/summary')
+@jwt_required
+@check_feature('advanced_analytics')
 def get_analytics_summary():
     """获取分析摘要数据"""
     try:
@@ -148,6 +151,8 @@ def get_analytics_summary():
 
 
 @analytics_bp.route('/analytics/profit-by-symbol')
+@jwt_required
+@check_feature('advanced_analytics')
 def get_profit_by_symbol():
     """按品种分析盈亏"""
     try:
@@ -208,6 +213,8 @@ def get_profit_by_symbol():
 
 
 @analytics_bp.route('/analytics/profit-by-time')
+@jwt_required
+@check_feature('advanced_analytics')
 def get_profit_by_time():
     """按时间分析盈亏"""
     try:
@@ -259,6 +266,8 @@ def get_profit_by_time():
 
 
 @analytics_bp.route('/analytics/trade-distribution')
+@jwt_required
+@check_feature('advanced_analytics')
 def get_trade_distribution():
     """获取交易分布统计"""
     try:
@@ -335,6 +344,8 @@ def get_trade_distribution():
 
 
 @analytics_bp.route('/analytics/risk-metrics')
+@jwt_required
+@check_feature('advanced_analytics')
 def get_risk_metrics():
     """获取风险指标"""
     try:
@@ -442,6 +453,8 @@ def get_risk_metrics():
 
 
 @analytics_bp.route('/analytics/equity-curve')
+@jwt_required
+@check_feature('advanced_analytics')
 def get_equity_curve():
     """获取资金曲线数据"""
     try:

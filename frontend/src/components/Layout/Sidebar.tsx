@@ -10,11 +10,14 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  DollarOutlined,
+  AlertOutlined,
+  KeyOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 
-import { useAuth } from '../../contexts/AuthContext'
+import { useUser } from '../../contexts/UserContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useLanguage } from '../../contexts/LanguageContext'
 
@@ -118,7 +121,7 @@ const Sidebar: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, logout } = useAuth()
+  const { user, logout } = useUser()
   const { theme } = useTheme()
   const { t } = useLanguage()
 
@@ -148,6 +151,21 @@ const Sidebar: React.FC = () => {
       icon: <BarChartOutlined />,
       label: t('menu.analytics'),
     },
+    ...(user?.membership_level === 'pro' || user?.membership_level === 'enterprise' ? [{
+      key: '/alerts',
+      icon: <AlertOutlined />,
+      label: t('menu.alerts'),
+    }] : []),
+    ...(user?.membership_level === 'pro' || user?.membership_level === 'enterprise' ? [{
+      key: '/api-keys',
+      icon: <KeyOutlined />,
+      label: t('menu.apiKeys'),
+    }] : []),
+    {
+      key: '/pricing',
+      icon: <DollarOutlined />,
+      label: t('menu.pricing'),
+    },
     {
       key: '/settings',
       icon: <SettingOutlined />,
@@ -162,7 +180,7 @@ const Sidebar: React.FC = () => {
   const handleLogout = async () => {
     try {
       await logout()
-      window.location.reload()
+      navigate('/login')
     } catch (error) {
       console.error('Logout failed:', error)
     }

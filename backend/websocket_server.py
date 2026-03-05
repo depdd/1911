@@ -479,3 +479,22 @@ class WebSocketServer:
         """停止WebSocket服务器"""
         self.running = False
         logger.info("WebSocket服务器停止")
+
+
+if __name__ == '__main__':
+    import redis
+    from config import Config
+    
+    config = Config()
+    
+    redis_client = redis.from_url(config.REDIS_URL, decode_responses=True)
+    
+    server = WebSocketServer(redis_client)
+    
+    print(f"启动WebSocket服务器: {config.WS_HOST}:{config.WS_PORT}")
+    
+    try:
+        asyncio.run(server.start_server(config.WS_HOST, config.WS_PORT))
+    except KeyboardInterrupt:
+        print("WebSocket服务器停止")
+        server.stop()

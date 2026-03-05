@@ -11,6 +11,7 @@ import {
 import styled from 'styled-components'
 
 import { useAuth } from '../../contexts/AuthContext'
+import { useUser } from '../../contexts/UserContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useLanguage } from '../../contexts/LanguageContext'
@@ -69,6 +70,7 @@ const PositionsCard = styled(Card)<{ $border: string; $bgColor: string }>`
 
 const Dashboard: React.FC = () => {
   const { account, updateAccount } = useAuth()
+  const { mt5Accounts } = useUser()
   useWebSocket()
   const { theme } = useTheme()
   const { t } = useLanguage()
@@ -189,6 +191,42 @@ const Dashboard: React.FC = () => {
 
   const totalProfit = positions.reduce((sum, pos) => sum + (pos.profit || 0), 0)
   const totalVolume = positions.reduce((sum, pos) => sum + (pos.volume || 0), 0)
+
+  if (!account || mt5Accounts.length === 0) {
+    return (
+      <DashboardContainer>
+        <DashboardHeader>
+          <Title level={2} style={{ color: theme.colors.text, margin: 0 }}>
+            {t('dashboard.title')}
+          </Title>
+        </DashboardHeader>
+        
+        <Card style={{ 
+          textAlign: 'center', 
+          padding: '60px 40px',
+          background: `${theme.colors.backgroundLight}cc`,
+          border: `1px solid ${theme.colors.border}`,
+          borderRadius: '12px'
+        }}>
+          <div style={{ fontSize: '64px', marginBottom: '24px' }}>🔗</div>
+          <Title level={3} style={{ color: theme.colors.text, marginBottom: '16px' }}>
+            连接您的MT5账户
+          </Title>
+          <Text style={{ color: theme.colors.textSecondary, fontSize: '16px', display: 'block', marginBottom: '24px' }}>
+            要查看交易数据和账户信息，请先连接您的MetaTrader 5账户。
+          </Text>
+          <Button 
+            type="primary" 
+            size="large"
+            onClick={() => window.location.href = '/user-center'}
+            style={{ background: theme.colors.primary, borderColor: theme.colors.primary }}
+          >
+            前往添加MT5账户
+          </Button>
+        </Card>
+      </DashboardContainer>
+    )
+  }
 
   return (
     <DashboardContainer>

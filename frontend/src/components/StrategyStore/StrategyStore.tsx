@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react'
-import { Modal, message, Tabs, Spin, InputNumber, Select, Input, Popconfirm } from 'antd'
+import { Modal, message, Tabs, Spin, InputNumber, Select, Input, Popconfirm, Button } from 'antd'
 import styled from 'styled-components'
 import { 
   RobotOutlined, PlayCircleOutlined, PauseCircleOutlined, 
   SettingOutlined, DeleteOutlined, PlusOutlined,
   ThunderboltOutlined, BarChartOutlined, FileTextOutlined
 } from '@ant-design/icons'
-import { strategyService, StrategyTemplate, StrategyInstance, StrategyParameter } from '../../services/strategyService'
+import { strategyService, StrategyTemplate, StrategyParameter } from '../../services/strategyService'
+import { UserStrategy } from '../../services/userAuthService'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useLanguage } from '../../contexts/LanguageContext'
+import { useUser } from '../../contexts/UserContext'
 
 const { TabPane } = Tabs
 
@@ -448,30 +450,30 @@ const ModalForm = styled.div`
 
 const StrategyStore: React.FC = () => {
   const [templates, setTemplates] = useState<StrategyTemplate[]>([])
-  const [strategies, setStrategies] = useState<StrategyInstance[]>([])
   const [loading, setLoading] = useState(true)
   const [createModalVisible, setCreateModalVisible] = useState(false)
   const [configModalVisible, setConfigModalVisible] = useState(false)
   const [logModalVisible, setLogModalVisible] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<StrategyTemplate | null>(null)
-  const [selectedStrategy, setSelectedStrategy] = useState<StrategyInstance | null>(null)
+  const [selectedStrategy, setSelectedStrategy] = useState<UserStrategy | null>(null)
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [strategyName, setStrategyName] = useState('')
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | number | null>(null)
   const [logs, setLogs] = useState<StrategyLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   
   const { theme } = useTheme()
   const { t } = useLanguage()
+  const { strategies, refreshStrategies, mt5Accounts, subscription } = useUser()
 
   useEffect(() => {
     loadData()
-    const interval = setInterval(loadStrategies, 5000)
+    const interval = setInterval(refreshStrategies, 5000)
     return () => clearInterval(interval)
   }, [])
 
   const loadData = async () => {
-    await Promise.all([loadTemplates(), loadStrategies()])
+    await loadTemplates()
     setLoading(false)
   }
 
@@ -482,14 +484,38 @@ const StrategyStore: React.FC = () => {
     }
   }
 
-  const loadStrategies = async () => {
-    const response = await strategyService.getStrategies()
-    if (response.success && response.data) {
-      setStrategies(response.data.strategies)
-    }
-  }
-
   const handleOpenCreateModal = (template: StrategyTemplate) => {
+    if (mt5Accounts.length === 0) {
+      message.warning(t('strategies.needMT5Account'))
+      return
+    }
+    
+    if (subscription?.limits && subscription.limits.strategies !== -1) {
+      const currentCount = strategies.length
+      const maxCount = subscription.limits.strategies
+      if (currentCount >= maxCount) {
+        Modal.info({
+          title: t('strategies.limitReached'),
+          content: (
+            <div>
+              <p>{t('strategies.limitReachedMessage', { current: currentCount, max: maxCount })}</p>
+              <Button 
+                type="primary" 
+                onClick={() => {
+                  window.location.href = '/pricing'
+                }}
+              >
+                {t('strategies.upgradeMembership')}
+              </Button>
+            </div>
+          ),
+          okText: t('common.cancel'),
+          maskClosable: true
+        })
+        return
+      }
+    }
+    
     setSelectedTemplate(template)
     const defaultParams: Record<string, any> = {}
     template.parameters_schema.forEach(param => {
@@ -516,17 +542,17 @@ const StrategyStore: React.FC = () => {
     if (response.success) {
       message.success(t('strategies.deploySuccess'))
       setCreateModalVisible(false)
-      loadStrategies()
+      refreshStrategies()
     } else {
       message.error(response.error || t('strategies.deployFailed'))
     }
     setActionLoading(null)
   }
 
-  const handleOpenConfigModal = (strategy: StrategyInstance) => {
+  const handleOpenConfigModal = (strategy: UserStrategy) => {
     setSelectedStrategy(strategy)
     setFormData(strategy.parameters)
-    setStrategyName(strategy.name)
+    setStrategyName(strategy.strategy_name)
     setConfigModalVisible(true)
   }
 
@@ -534,62 +560,62 @@ const StrategyStore: React.FC = () => {
     if (!selectedStrategy) return
 
     setActionLoading('update')
-    const response = await strategyService.updateStrategy(selectedStrategy.strategy_id, {
+    const response = await strategyService.updateStrategy(selectedStrategy.id.toString(), {
       name: strategyName,
       parameters: formData
     })
 
     if (response.success) {
       message.success(t('common.success'))
-      setConfigModalVisible(false)
-      loadStrategies()
+        setConfigModalVisible(false)
+        refreshStrategies()
     } else {
       message.error(response.error || t('common.error'))
     }
     setActionLoading(null)
   }
 
-  const handleStartStrategy = async (strategyId: string) => {
+  const handleStartStrategy = async (strategyId: number) => {
     setActionLoading(strategyId)
-    const response = await strategyService.startStrategy(strategyId)
+    const response = await strategyService.startStrategy(strategyId.toString())
     if (response.success) {
       message.success(t('strategies.startSuccess'))
-      loadStrategies()
+        refreshStrategies()
     } else {
       message.error(response.error || t('common.error'))
     }
     setActionLoading(null)
   }
 
-  const handleStopStrategy = async (strategyId: string) => {
+  const handleStopStrategy = async (strategyId: number) => {
     setActionLoading(strategyId)
-    const response = await strategyService.stopStrategy(strategyId)
+    const response = await strategyService.stopStrategy(strategyId.toString())
     if (response.success) {
       message.success(t('strategies.stopSuccess'))
-      loadStrategies()
+        refreshStrategies()
     } else {
       message.error(response.error || t('common.error'))
     }
     setActionLoading(null)
   }
 
-  const handleDeleteStrategy = async (strategyId: string) => {
-    const response = await strategyService.deleteStrategy(strategyId)
+  const handleDeleteStrategy = async (strategyId: number) => {
+    const response = await strategyService.deleteStrategy(strategyId.toString())
     if (response.success) {
       message.success(t('strategies.deleteSuccess'))
-      loadStrategies()
+        refreshStrategies()
     } else {
       message.error(response.error || t('common.error'))
     }
   }
 
-  const handleViewLogs = async (strategy: StrategyInstance) => {
+  const handleViewLogs = async (strategy: UserStrategy) => {
     setSelectedStrategy(strategy)
     setLogModalVisible(true)
     setLogsLoading(true)
     
     try {
-      const response = await strategyService.getStrategyLogs(strategy.strategy_id)
+      const response = await strategyService.getStrategyLogs(strategy.id.toString())
       if (response.success && response.data) {
         setLogs(response.data)
       }
@@ -604,7 +630,7 @@ const StrategyStore: React.FC = () => {
     if (!selectedStrategy) return
     
     try {
-      const response = await strategyService.clearStrategyLogs(selectedStrategy.strategy_id)
+      const response = await strategyService.clearStrategyLogs(selectedStrategy.id.toString())
       if (response.success) {
         setLogs([])
         message.success(t('common.success'))
@@ -758,9 +784,9 @@ const StrategyStore: React.FC = () => {
             ) : (
               <MyStrategyGrid>
                 {strategies.map(strategy => (
-                  <StrategyCard key={strategy.strategy_id} $border={theme.colors.border}>
+                  <StrategyCard key={strategy.id} $border={theme.colors.border}>
                     <StrategyHeader>
-                      <StrategyName>{strategy.name}</StrategyName>
+                      <StrategyName>{strategy.strategy_name}</StrategyName>
                       <StatusBadge $status={strategy.status}>
                         <span className="dot" />
                         {getStatusText(strategy.status)}
@@ -788,40 +814,38 @@ const StrategyStore: React.FC = () => {
                       </ParamItem>
                     </StrategyParams>
 
-                    {strategy.runtime && (
-                      <StrategyStats>
-                        <StatItem>
-                          <StatLabel>{t('strategies.totalTrades')}</StatLabel>
-                          <StatValue>{strategy.runtime.total_trades}</StatValue>
-                        </StatItem>
-                        <StatItem>
-                          <StatLabel>{t('strategies.winRate')}</StatLabel>
-                          <StatValue $positive={strategy.runtime.win_rate >= 50} $negative={strategy.runtime.win_rate < 50}>
-                            {strategy.runtime.win_rate.toFixed(1)}%
-                          </StatValue>
-                        </StatItem>
-                        <StatItem>
-                          <StatLabel>{t('strategies.totalProfit')}</StatLabel>
-                          <StatValue $positive={strategy.runtime.total_profit >= 0} $negative={strategy.runtime.total_profit < 0}>
-                            {strategy.runtime.total_profit >= 0 ? '+' : ''}{strategy.runtime.total_profit.toFixed(2)}
-                          </StatValue>
-                        </StatItem>
-                      </StrategyStats>
-                    )}
+                    <StrategyStats>
+                      <StatItem>
+                        <StatLabel>{t('strategies.totalTrades')}</StatLabel>
+                        <StatValue>{strategy.total_trades}</StatValue>
+                      </StatItem>
+                      <StatItem>
+                        <StatLabel>{t('strategies.winRate')}</StatLabel>
+                        <StatValue $positive={strategy.win_rate >= 50} $negative={strategy.win_rate < 50}>
+                          {strategy.win_rate.toFixed(1)}%
+                        </StatValue>
+                      </StatItem>
+                      <StatItem>
+                        <StatLabel>{t('strategies.totalProfit')}</StatLabel>
+                        <StatValue $positive={strategy.total_profit >= 0} $negative={strategy.total_profit < 0}>
+                          {strategy.total_profit >= 0 ? '+' : ''}{strategy.total_profit.toFixed(2)}
+                        </StatValue>
+                      </StatItem>
+                    </StrategyStats>
 
                     <ActionButtons>
                       {strategy.status === 'running' ? (
                         <ActionButton 
-                          onClick={() => handleStopStrategy(strategy.strategy_id)}
-                          disabled={actionLoading === strategy.strategy_id}
+                          onClick={() => handleStopStrategy(strategy.id)}
+                          disabled={actionLoading === strategy.id.toString()}
                         >
                           <PauseCircleOutlined /> {t('strategies.stop')}
                         </ActionButton>
                       ) : (
                         <ActionButton 
                           $variant="primary"
-                          onClick={() => handleStartStrategy(strategy.strategy_id)}
-                          disabled={actionLoading === strategy.strategy_id}
+                          onClick={() => handleStartStrategy(strategy.id)}
+                          disabled={actionLoading === strategy.id.toString()}
                         >
                           <PlayCircleOutlined /> {t('strategies.start')}
                         </ActionButton>
@@ -834,7 +858,7 @@ const StrategyStore: React.FC = () => {
                       </ActionButton>
                       <Popconfirm
                         title={t('strategies.confirmDelete')}
-                        onConfirm={() => handleDeleteStrategy(strategy.strategy_id)}
+                        onConfirm={() => handleDeleteStrategy(strategy.id)}
                         okText={t('common.confirm')}
                         cancelText={t('common.cancel')}
                         getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}

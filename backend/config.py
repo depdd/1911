@@ -12,7 +12,7 @@ class Config:
     DEBUG: bool = os.getenv('DEBUG', 'True').lower() == 'true'
     
     # 数据库配置
-    DATABASE_URL: str = os.getenv('DATABASE_URL', 'postgresql://postgres:password@localhost:5432/forex_trading')
+    DATABASE_URL: str = os.getenv('DATABASE_URL', 'sqlite:///forex_trading.db')
     REDIS_URL: str = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
     
     # MT5配置
@@ -23,7 +23,7 @@ class Config:
     
     # WebSocket配置
     WS_HOST: str = os.getenv('WS_HOST', '0.0.0.0')
-    WS_PORT: int = int(os.getenv('WS_PORT', '5001'))
+    WS_PORT: int = int(os.getenv('WS_PORT', '65534'))
     
     # 交易配置
     MAX_POSITIONS: int = int(os.getenv('MAX_POSITIONS', '100'))

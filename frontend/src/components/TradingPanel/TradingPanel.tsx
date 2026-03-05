@@ -3,6 +3,8 @@ import { Typography, Card, Row, Col, Form, Select, InputNumber, Input, Button, m
 import dayjs from 'dayjs'
 import styled from 'styled-components'
 
+import { useAuth } from '../../contexts/AuthContext'
+import { useUser } from '../../contexts/UserContext'
 import { theme } from '../../styles/theme'
 import { tradingService } from '../../services/tradingService'
 import marketService from '../../services/marketService'
@@ -80,6 +82,8 @@ const PriceDisplay = styled.div`
 `
 
 const TradingPanel: React.FC = () => {
+  const { account } = useAuth()
+  const { mt5Accounts } = useUser()
   const [form] = Form.useForm()
   const [symbols, setSymbols] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -87,13 +91,42 @@ const TradingPanel: React.FC = () => {
   const [currentPrice, setCurrentPrice] = useState<TickData | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
   const [orders, setOrders] = useState<Order[]>([])
-  const [dayOpenPrice, setDayOpenPrice] = useState<number | null>(null) // 当日开盘价
-  const [pricePrecision, setPricePrecision] = useState<number>(5) // 价格精度，默认5位小数
-  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all') // 订单状态筛选
-  const [dateRange, setDateRange] = useState<[string, string]>(['', '']) // 时间范围筛选
+  const [dayOpenPrice, setDayOpenPrice] = useState<number | null>(null)
+  const [pricePrecision, setPricePrecision] = useState<number>(5)
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
+  const [dateRange, setDateRange] = useState<[string, string]>(['', ''])
   
-  // 使用 ref 来保存前一个价格，避免闭包问题
   const lastPriceRef = useRef<number | null>(null)
+  
+  if (!account || mt5Accounts.length === 0) {
+    return (
+      <Container>
+        <StyledCard>
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '60px 40px',
+            color: theme.colors.textSecondary 
+          }}>
+            <div style={{ fontSize: '64px', marginBottom: '24px' }}>🔗</div>
+            <Title level={3} style={{ color: theme.colors.text, marginBottom: '16px' }}>
+              连接您的MT5账户
+            </Title>
+            <p style={{ color: theme.colors.textSecondary, fontSize: '16px', marginBottom: '24px' }}>
+              要使用交易功能，请先连接您的MetaTrader 5账户。
+            </p>
+            <Button 
+              type="primary" 
+              size="large"
+              onClick={() => window.location.href = '/user-center'}
+              style={{ background: theme.colors.primary, borderColor: theme.colors.primary }}
+            >
+              前往添加MT5账户
+            </Button>
+          </div>
+        </StyledCard>
+      </Container>
+    )
+  }
   
   // 根据品种获取价格精度
   const getPricePrecision = (symbol: string): number => {

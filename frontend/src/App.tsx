@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Spin } from 'antd'
 import styled from 'styled-components'
 
 import { useAuth } from './contexts/AuthContext'
 import { useWebSocket } from './contexts/WebSocketContext'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
+import { UserProvider, useUser } from './contexts/UserContext'
 import Sidebar from './components/Layout/Sidebar'
 import Header from './components/Layout/Header'
 import Dashboard from './components/Dashboard/Dashboard'
@@ -14,7 +15,13 @@ import TradingPanel from './components/TradingPanel/TradingPanel'
 import StrategyStore from './components/StrategyStore/StrategyStore'
 import Analytics from './components/Analytics/Analytics'
 import Settings from './components/Settings/Settings'
+import AlertsPage from './components/Alerts/AlertsPage'
+import APIKeysPage from './components/APIKeys/APIKeysPage'
 import MT5Connection from './components/MT5Connection/MT5Connection'
+import LoginPage from './components/Auth/LoginPage'
+import UserCenter from './components/Auth/UserCenter'
+import PricingPage from './components/Auth/PricingPage'
+import MT5SetupGuide from './components/Auth/MT5SetupGuide'
 
 const { Content } = Layout
 
@@ -50,8 +57,33 @@ const LoadingText = styled.div<{ $color: string }>`
   letter-spacing: 1px;
 `
 
+interface ProtectedRouteProps {
+  children: React.ReactNode
+}
+
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  const { isAuthenticated, isLoading } = useUser()
+  const location = useLocation()
+  const { theme } = useTheme()
+
+  if (isLoading) {
+    return (
+      <LoadingContainer $background={theme.gradients.background}>
+        <Spin size="large" />
+        <LoadingText $color={theme.colors.primary}>Loading...</LoadingText>
+      </LoadingContainer>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  return <>{children}</>
+}
+
 const AppContentWrapper: React.FC = () => {
-  const { isAuthenticated, isLoading, checkAuthStatus } = useAuth()
+  const { isLoading, checkAuthStatus } = useAuth()
   const { connect, isConnected } = useWebSocket()
   const { theme } = useTheme()
   const [isAppLoading, setIsAppLoading] = useState(true)
@@ -62,7 +94,7 @@ const AppContentWrapper: React.FC = () => {
         await checkAuthStatus()
         
         if (!isConnected) {
-          console.log('尝试连接WebSocket服务器: ws://localhost:65534')
+          console.log('Connecting to WebSocket: ws://localhost:65534')
           connect('ws://localhost:65534')
         }
         
@@ -80,14 +112,58 @@ const AppContentWrapper: React.FC = () => {
     return (
       <LoadingContainer $background={theme.gradients.background}>
         <Spin size="large" />
-        <LoadingText $color={theme.colors.primary}>加载中...</LoadingText>
+        <LoadingText $color={theme.colors.primary}>Loading...</LoadingText>
       </LoadingContainer>
     )
   }
 
-  if (!isAuthenticated) {
-    return <MT5Connection />
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPageRoute />} />
+      <Route path="/mt5-login" element={<MT5Connection />} />
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  )
+}
+
+const LoginPageRoute: React.FC = () => {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { isAuthenticated, refreshUser } = useUser()
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const from = (location.state as any)?.from?.pathname || '/'
+      navigate(from, { replace: true })
+    }
+  }, [isAuthenticated, navigate, location])
+
+  if (isAuthenticated) {
+    return null
   }
+
+  return <LoginPage onLoginSuccess={refreshUser} />
+}
+
+const MainLayout: React.FC = () => {
+  const { theme } = useTheme()
+  const { mt5Accounts } = useUser()
+  const navigate = useNavigate()
+  const [checked, setChecked] = useState(false)
+
+  useEffect(() => {
+    if (!checked && mt5Accounts.length === 0) {
+      setChecked(true)
+      navigate('/mt5-setup', { replace: true })
+    }
+  }, [mt5Accounts, navigate, checked])
 
   return (
     <AppLayout $background={theme.colors.background}>
@@ -105,7 +181,12 @@ const AppContentWrapper: React.FC = () => {
             <Route path="/trading" element={<TradingPanel />} />
             <Route path="/strategies" element={<StrategyStore />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/alerts" element={<AlertsPage />} />
+            <Route path="/api-keys" element={<APIKeysPage />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/user-center" element={<UserCenter />} />
+            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/mt5-setup" element={<MT5SetupGuide />} />
           </Routes>
         </AppContent>
       </Layout>
@@ -116,7 +197,9 @@ const AppContentWrapper: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ThemeProvider>
-      <AppContentWrapper />
+      <UserProvider>
+        <AppContentWrapper />
+      </UserProvider>
     </ThemeProvider>
   )
 }

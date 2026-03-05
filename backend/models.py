@@ -1,11 +1,145 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Index
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Index, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 import json
+import enum
 
 Base = declarative_base()
+
+class MembershipLevel(enum.Enum):
+    FREE = "free"
+    BASIC = "basic"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"
+
+class User(Base):
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    username = Column(String(100), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    membership_level = Column(String(20), default='free')
+    membership_expire_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)
+    last_login_at = Column(DateTime, nullable=True)
+    last_login_ip = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    mt5_accounts = relationship("UserMT5Account", back_populates="user", cascade="all, delete-orphan")
+    api_keys = relationship("UserAPIKey", back_populates="user", cascade="all, delete-orphan")
+    subscriptions = relationship("UserSubscription", back_populates="user", cascade="all, delete-orphan")
+    payments = relationship("Payment", back_populates="user", cascade="all, delete-orphan")
+    operation_logs = relationship("UserOperationLog", back_populates="user", cascade="all, delete-orphan")
+    settings = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+class UserMT5Account(Base):
+    __tablename__ = 'user_mt5_accounts'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    account_name = Column(String(100), nullable=False)
+    login = Column(String(50), nullable=False)
+    password = Column(String(255), nullable=False)
+    server = Column(String(100), nullable=False)
+    is_active = Column(Boolean, default=True)
+    is_primary = Column(Boolean, default=False)
+    last_connected_at = Column(DateTime, nullable=True)
+    connection_status = Column(String(20), default='disconnected')
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", back_populates="mt5_accounts")
+    strategies = relationship("UserStrategy", back_populates="mt5_account", cascade="all, delete-orphan")
+
+class UserAPIKey(Base):
+    __tablename__ = 'user_api_keys'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    key_name = Column(String(100), nullable=False)
+    api_key = Column(String(64), unique=True, nullable=False, index=True)
+    api_secret = Column(String(64), nullable=False)
+    permissions = Column(Text, default='read')
+    is_active = Column(Boolean, default=True)
+    last_used_at = Column(DateTime, nullable=True)
+    expire_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    
+    user = relationship("User", back_populates="api_keys")
+
+class UserSubscription(Base):
+    __tablename__ = 'user_subscriptions'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    plan = Column(String(20), nullable=False)
+    status = Column(String(20), default='active')
+    start_at = Column(DateTime, nullable=False)
+    end_at = Column(DateTime, nullable=False)
+    auto_renew = Column(Boolean, default=False)
+    payment_id = Column(Integer, ForeignKey('payments.id'), nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", back_populates="subscriptions")
+
+class Payment(Base):
+    __tablename__ = 'payments'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    order_no = Column(String(64), unique=True, nullable=False, index=True)
+    payment_method = Column(String(20), nullable=False)
+    amount = Column(Float, nullable=False)
+    currency = Column(String(10), default='CNY')
+    status = Column(String(20), default='pending')
+    plan = Column(String(20), nullable=False)
+    duration_months = Column(Integer, default=1)
+    payment_data = Column(Text, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", back_populates="payments")
+
+class UserStrategy(Base):
+    __tablename__ = 'user_strategies'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    mt5_account_id = Column(Integer, ForeignKey('user_mt5_accounts.id'), nullable=False)
+    strategy_name = Column(String(100), nullable=False)
+    template_id = Column(String(50), nullable=False)
+    parameters = Column(Text)
+    status = Column(String(20), default='stopped')
+    total_trades = Column(Integer, default=0)
+    total_profit = Column(Float, default=0.0)
+    max_drawdown = Column(Float, default=0.0)
+    win_rate = Column(Float, default=0.0)
+    started_at = Column(DateTime, nullable=True)
+    stopped_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    mt5_account = relationship("UserMT5Account", back_populates="strategies")
+
+class UserOperationLog(Base):
+    __tablename__ = 'user_operation_logs'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    operation_type = Column(String(50), nullable=False)
+    operation_detail = Column(Text, nullable=True)
+    ip_address = Column(String(50), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    
+    user = relationship("User", back_populates="operation_logs")
 
 class Account(Base):
     __tablename__ = 'accounts'
@@ -160,15 +294,17 @@ class UserSettings(Base):
     __tablename__ = 'user_settings'
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(String(100), nullable=False, unique=True, index=True)
-    theme = Column(String(20), default='dark')  # dark/light
-    language = Column(String(10), default='zh')  # zh/en
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, unique=True, index=True)
+    theme = Column(String(20), default='dark')
+    language = Column(String(10), default='zh')
     timezone = Column(String(50), default='UTC')
-    chart_settings = Column(Text)  # JSON格式的图表设置
-    notification_settings = Column(Text)  # JSON格式的通知设置
-    risk_settings = Column(Text)  # JSON格式的风险控制设置
+    chart_settings = Column(Text)
+    notification_settings = Column(Text)
+    risk_settings = Column(Text)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", back_populates="settings")
 
 class TradingStats(Base):
     __tablename__ = 'trading_stats'
@@ -201,7 +337,14 @@ class TradingStats(Base):
 # 数据库连接和会话管理
 class DatabaseManager:
     def __init__(self, database_url: str):
-        self.engine = create_engine(database_url)
+        self.engine = create_engine(
+            database_url,
+            pool_size=20,
+            max_overflow=10,
+            pool_timeout=30,
+            pool_recycle=3600,
+            echo=False
+        )
         Base.metadata.create_all(self.engine)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
     

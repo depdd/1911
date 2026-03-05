@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Typography, Card, Row, Col, Statistic, Space, Spin, DatePicker } from 'antd'
+import { Typography, Card, Row, Col, Statistic, Space, Spin, DatePicker, Button } from 'antd'
 import {
   BarChartOutlined,
   LineChartOutlined,
@@ -12,6 +12,8 @@ import styled from 'styled-components'
 import axios from 'axios'
 import dayjs, { Dayjs } from 'dayjs'
 
+import { useAuth } from '../../contexts/AuthContext'
+import { useUser } from '../../contexts/UserContext'
 import { theme } from '../../styles/theme'
 
 const { Title, Text } = Typography
@@ -160,19 +162,53 @@ interface EquityPoint {
 }
 
 const Analytics: React.FC = () => {
+  const { account } = useAuth()
+  const { mt5Accounts } = useUser()
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [profitBySymbol, setProfitBySymbol] = useState<ProfitBySymbol[]>([])
   const [tradeDistribution, setTradeDistribution] = useState<TradeDistribution | null>(null)
   const [riskMetrics, setRiskMetrics] = useState<RiskMetrics | null>(null)
   const [equityCurve, setEquityCurve] = useState<EquityPoint[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([
     dayjs().subtract(30, 'day'),
     dayjs()
   ])
 
+  if (!account || mt5Accounts.length === 0) {
+    return (
+      <Container>
+        <AnalyticsCard>
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '60px 40px',
+            color: theme.colors.textSecondary 
+          }}>
+            <div style={{ fontSize: '64px', marginBottom: '24px' }}>📊</div>
+            <Title level={3} style={{ color: theme.colors.text, marginBottom: '16px' }}>
+              连接您的MT5账户
+            </Title>
+            <p style={{ color: theme.colors.textSecondary, fontSize: '16px', marginBottom: '24px' }}>
+              要查看交易分析数据，请先连接您的MetaTrader 5账户。
+            </p>
+            <Button 
+              type="primary" 
+              size="large"
+              onClick={() => window.location.href = '/user-center'}
+              style={{ background: theme.colors.primary, borderColor: theme.colors.primary }}
+            >
+              前往添加MT5账户
+            </Button>
+          </div>
+        </AnalyticsCard>
+      </Container>
+    )
+  }
+
   const loadAllData = async (startDate: string, endDate: string) => {
     setIsLoading(true)
+    setError(null)
     try {
       const [summaryRes, symbolRes, distRes, riskRes, equityRes] = await Promise.all([
         apiClient.get(`/analytics/summary?start_date=${startDate}&end_date=${endDate}`),
@@ -187,8 +223,13 @@ const Analytics: React.FC = () => {
       setTradeDistribution(distRes.data.data || null)
       setRiskMetrics(riskRes.data.data || null)
       setEquityCurve(equityRes.data.data?.equity_curve || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load analytics:', error)
+      if (error.response?.status === 403) {
+        setError(error.response.data?.error || 'Feature not available in your current plan')
+      } else {
+        setError('Failed to load analytics data')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -496,6 +537,31 @@ const Analytics: React.FC = () => {
           />
         </Space>
       </div>
+
+      {error && (
+        <AnalyticsCard style={{ marginBottom: 16 }}>
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '40px',
+            color: theme.colors.textSecondary 
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+            <Title level={4} style={{ color: theme.colors.text, marginBottom: '12px' }}>
+              功能不可用
+            </Title>
+            <p style={{ color: theme.colors.textSecondary, fontSize: '14px', marginBottom: '20px' }}>
+              {error}
+            </p>
+            <Button 
+              type="primary"
+              onClick={() => window.location.href = '/pricing'}
+              style={{ background: theme.colors.primary, borderColor: theme.colors.primary }}
+            >
+              升级会员
+            </Button>
+          </div>
+        </AnalyticsCard>
+      )}
 
       <Spin spinning={isLoading}>
         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>

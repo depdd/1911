@@ -17,6 +17,12 @@ from api.market import market_bp
 from api.strategy import strategy_bp
 from api.analytics import analytics_bp
 from api.settings import settings_bp
+from api.auth import init_auth_blueprint
+from api.user_accounts import init_accounts_blueprint
+from api.user_strategies import init_user_strategies_blueprint
+from api.payment import init_payment_blueprint
+from api.legal import init_legal_blueprint
+from api.risk import init_risk_blueprint
 
 # 配置和初始化
 config = get_config()
@@ -55,6 +61,25 @@ app.register_blueprint(strategy_bp)
 app.register_blueprint(analytics_bp)
 app.register_blueprint(settings_bp)
 
+# 注册用户系统蓝图
+auth_bp = init_auth_blueprint(lambda: db_manager.get_session())
+app.register_blueprint(auth_bp, url_prefix='/api/auth')
+
+accounts_bp = init_accounts_blueprint(lambda: db_manager.get_session())
+app.register_blueprint(accounts_bp, url_prefix='/api/accounts')
+
+user_strategies_bp = init_user_strategies_blueprint(lambda: db_manager.get_session())
+app.register_blueprint(user_strategies_bp, url_prefix='/api/user-strategies')
+
+payment_bp = init_payment_blueprint(lambda: db_manager.get_session())
+app.register_blueprint(payment_bp, url_prefix='/api/payment')
+
+legal_bp = init_legal_blueprint(lambda: db_manager.get_session())
+app.register_blueprint(legal_bp, url_prefix='/api/legal')
+
+risk_bp = init_risk_blueprint(lambda: db_manager.get_session())
+app.register_blueprint(risk_bp, url_prefix='/api/risk')
+
 @app.route('/')
 def index():
     """主页"""
@@ -69,15 +94,12 @@ def index():
 def health_check():
     """健康检查"""
     try:
-        # 检查数据库连接
         session = db_manager.get_session()
         session.execute('SELECT 1')
         session.close()
         
-        # 检查Redis连接
         redis_client.ping()
         
-        # 检查MT5连接
         mt5_status = mt5_client.connected
         
         return jsonify({
@@ -96,6 +118,14 @@ def health_check():
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
+
+@app.route('/api/server-time')
+def server_time():
+    """获取服务器时间"""
+    return jsonify({
+        'server_time': datetime.now().isoformat(),
+        'timestamp': datetime.now().timestamp()
+    })
 
 # MT5连接管理API
 @app.route('/api/mt5/connect', methods=['POST'])

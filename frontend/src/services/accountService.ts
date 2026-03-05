@@ -13,7 +13,7 @@ const apiClient = axios.create({
 // 添加请求拦截器，与authService保持一致的认证逻辑
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('auth_token')
+    const token = localStorage.getItem('user_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
