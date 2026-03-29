@@ -43,6 +43,13 @@ class MT5Client:
     async def login(self, login: str, password: str, server: str) -> bool:
         """登录MT5账户"""
         try:
+            if not self.connected:
+                if not mt5.initialize():
+                    error_code = mt5.last_error()
+                    logger.error(f"MT5初始化失败: {error_code}")
+                    return False
+                self.connected = True
+            
             authorized = mt5.login(login=int(login), password=password, server=server)
             if authorized:
                 self.account_info = mt5.account_info()
@@ -229,6 +236,10 @@ class MT5Client:
                 current_time = int(time.time())
                 tick_time = tick.time
                 
+                # 始终使用当前时间作为tick时间，确保与历史K线时间对齐
+                # MT5返回的tick.time可能是历史时间戳
+                actual_tick_time = current_time
+                
                 is_market_open = (current_time - tick_time) < 60
                 
                 if is_market_open:
@@ -250,12 +261,12 @@ class MT5Client:
                 
                 return {
                     'symbol': symbol,
-                    'time': tick.time,
+                    'time': actual_tick_time,
                     'bid': tick.bid,
                     'ask': tick.ask,
                     'last': tick.last,
                     'volume': volume,
-                    'time_msc': tick.time_msc,
+                    'time_msc': actual_tick_time * 1000,
                     'flags': tick.flags,
                     'volume_real': volume_real
                 }
@@ -349,35 +360,7 @@ class MT5Client:
             
             df = pd.DataFrame(rates)
             df['time'] = pd.to_datetime(df['time'], unit='s')
-            # 确保数据按时间升序排列
             df = df.sort_values('time', ascending=True)
-            
-            # 为历史K线数据生成真实的成交量值
-            import random
-            
-            # 设置不同品种的基础成交量
-            volume_base = {
-                'EURUSD': 1000000,
-                'GBPUSD': 800000,
-                'USDJPY': 1200000,
-                'XAUUSD': 500000,
-                'BTCUSD': 200000
-            }
-            
-            # 为每条历史数据生成真实的成交量值
-            for i in range(len(df)):
-                # 根据品种设置基础成交量
-                base = volume_base.get(symbol, 100000)
-                
-                # 生成一个随机的成交量值，在基础成交量的±30%范围内
-                volume = max(1, int(base * (0.7 + random.random() * 0.6)))
-                
-                # 确保volume_real有合理的值
-                volume_real = volume / 1000
-                
-                # 更新DataFrame中的成交量字段
-                df.at[i, 'volume'] = volume
-                df.at[i, 'real_volume'] = volume_real
             
             return df
             

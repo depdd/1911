@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Table, Button, Modal, Input, Form, message, Popconfirm, Space, Typography, Tag, Empty, Spin } from 'antd'
+import { Card, Table, Button, Modal, Input, Form, Popconfirm, Space, Typography, Tag, Empty, Spin, App } from 'antd'
 import { 
   PlusOutlined, 
   CopyOutlined, 
@@ -7,15 +7,11 @@ import {
   KeyOutlined 
 } from '@ant-design/icons'
 import styled from 'styled-components'
-import axios from 'axios'
 import { theme } from '../../styles/theme'
+import { apiClient } from '../../services/userAuthService'
+import { useUser } from '../../contexts/UserContext'
 
 const { Title, Text } = Typography
-
-const apiClient = axios.create({
-  baseURL: 'http://localhost:5000',
-  timeout: 10000,
-})
 
 interface APIKey {
   id: number
@@ -94,6 +90,8 @@ const ActionsCell = styled.div`
 `
 
 const APIKeysPage: React.FC = () => {
+  const { isAuthenticated } = useUser()
+  const { message } = App.useApp()
   const [apiKeys, setAPIKeys] = useState<APIKey[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -106,6 +104,12 @@ const APIKeysPage: React.FC = () => {
   const [createLoading, setCreateLoading] = useState(false)
 
   const loadAPIKeys = async () => {
+    if (!isAuthenticated) {
+      setError('请先登录')
+      setLoading(false)
+      return
+    }
+    
     setLoading(true)
     setError(null)
     try {
@@ -114,6 +118,8 @@ const APIKeysPage: React.FC = () => {
     } catch (err: any) {
       if (err.response?.status === 403) {
         setError('API访问功能需要专业版或企业版会员')
+      } else if (err.response?.status === 401) {
+        setError('请先登录')
       } else {
         setError('加载API密钥失败')
       }
@@ -124,7 +130,7 @@ const APIKeysPage: React.FC = () => {
 
   useEffect(() => {
     loadAPIKeys()
-  }, [])
+  }, [isAuthenticated])
 
   const handleCreateKey = async () => {
     if (!newKeyName.trim()) {
@@ -140,9 +146,10 @@ const APIKeysPage: React.FC = () => {
         expire_days: expireDays
       })
 
+      const keyData = response.data.api_key
       setCreatedKey({
-        key: response.data.api_key,
-        secret: response.data.api_secret
+        key: keyData.api_key,
+        secret: keyData.api_secret
       })
       setShowCreateModal(false)
       setShowKeyModal(true)

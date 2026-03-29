@@ -9,12 +9,11 @@ import {
   DollarOutlined,
 } from '@ant-design/icons'
 import styled from 'styled-components'
-import axios from 'axios'
 import dayjs, { Dayjs } from 'dayjs'
 
-import { useAuth } from '../../contexts/AuthContext'
 import { useUser } from '../../contexts/UserContext'
 import { theme } from '../../styles/theme'
+import { apiClient } from '../../services/userAuthService'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -106,11 +105,6 @@ const LegendDot = styled.div<{ color: string }>`
   background: ${props => props.color};
 `
 
-const apiClient = axios.create({
-  baseURL: 'http://localhost:5000',
-  timeout: 30000,
-})
-
 interface AnalyticsData {
   total_profit: number
   win_rate: number
@@ -162,8 +156,7 @@ interface EquityPoint {
 }
 
 const Analytics: React.FC = () => {
-  const { account } = useAuth()
-  const { mt5Accounts } = useUser()
+  const { mt5Accounts, isAuthenticated } = useUser()
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [profitBySymbol, setProfitBySymbol] = useState<ProfitBySymbol[]>([])
   const [tradeDistribution, setTradeDistribution] = useState<TradeDistribution | null>(null)
@@ -176,7 +169,56 @@ const Analytics: React.FC = () => {
     dayjs()
   ])
 
-  if (!account || mt5Accounts.length === 0) {
+  useEffect(() => {
+    console.log('Analytics - mt5Accounts:', mt5Accounts)
+  }, [mt5Accounts])
+
+  useEffect(() => {
+    if (!isAuthenticated || mt5Accounts.length === 0) {
+      return
+    }
+    const startDate = dateRange[0].format('YYYY-MM-DD')
+    const endDate = dateRange[1].format('YYYY-MM-DD')
+    
+    const loadAllData = async () => {
+      setIsLoading(true)
+      setError(null)
+      try {
+        const [summaryRes, symbolRes, distRes, riskRes, equityRes] = await Promise.all([
+          apiClient.get(`/analytics/summary?start_date=${startDate}&end_date=${endDate}`),
+          apiClient.get(`/analytics/profit-by-symbol?start_date=${startDate}&end_date=${endDate}`),
+          apiClient.get(`/analytics/trade-distribution?start_date=${startDate}&end_date=${endDate}`),
+          apiClient.get(`/analytics/risk-metrics?start_date=${startDate}&end_date=${endDate}`),
+          apiClient.get(`/analytics/equity-curve?start_date=${startDate}&end_date=${endDate}`),
+        ])
+
+        setAnalyticsData(summaryRes.data)
+        setProfitBySymbol(symbolRes.data.data || [])
+        setTradeDistribution(distRes.data.data || null)
+        setRiskMetrics(riskRes.data.data || null)
+        setEquityCurve(equityRes.data.data?.equity_curve || [])
+      } catch (error: any) {
+        console.error('Failed to load analytics:', error)
+        if (error.response?.status === 403) {
+          setError(error.response.data?.error || 'Feature not available in your current plan')
+        } else {
+          setError('Failed to load analytics data')
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    
+    loadAllData()
+  }, [dateRange, mt5Accounts.length, isAuthenticated])
+
+  const handleDateRangeChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
+    if (dates && dates[0] && dates[1]) {
+      setDateRange([dates[0], dates[1]])
+    }
+  }
+
+  if (!isAuthenticated || mt5Accounts.length === 0) {
     return (
       <Container>
         <AnalyticsCard>
@@ -204,47 +246,6 @@ const Analytics: React.FC = () => {
         </AnalyticsCard>
       </Container>
     )
-  }
-
-  const loadAllData = async (startDate: string, endDate: string) => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const [summaryRes, symbolRes, distRes, riskRes, equityRes] = await Promise.all([
-        apiClient.get(`/analytics/summary?start_date=${startDate}&end_date=${endDate}`),
-        apiClient.get(`/analytics/profit-by-symbol?start_date=${startDate}&end_date=${endDate}`),
-        apiClient.get(`/analytics/trade-distribution?start_date=${startDate}&end_date=${endDate}`),
-        apiClient.get(`/analytics/risk-metrics?start_date=${startDate}&end_date=${endDate}`),
-        apiClient.get(`/analytics/equity-curve?start_date=${startDate}&end_date=${endDate}`),
-      ])
-
-      setAnalyticsData(summaryRes.data)
-      setProfitBySymbol(symbolRes.data.data || [])
-      setTradeDistribution(distRes.data.data || null)
-      setRiskMetrics(riskRes.data.data || null)
-      setEquityCurve(equityRes.data.data?.equity_curve || [])
-    } catch (error: any) {
-      console.error('Failed to load analytics:', error)
-      if (error.response?.status === 403) {
-        setError(error.response.data?.error || 'Feature not available in your current plan')
-      } else {
-        setError('Failed to load analytics data')
-      }
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    const startDate = dateRange[0].format('YYYY-MM-DD')
-    const endDate = dateRange[1].format('YYYY-MM-DD')
-    loadAllData(startDate, endDate)
-  }, [dateRange])
-
-  const handleDateRangeChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
-    if (dates && dates[0] && dates[1]) {
-      setDateRange([dates[0], dates[1]])
-    }
   }
 
   const renderProfitBarChart = () => {

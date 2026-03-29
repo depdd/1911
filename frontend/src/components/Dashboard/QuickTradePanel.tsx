@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Card, Form, Select, InputNumber, Button, Space, Input, Row, Col, message } from 'antd'
+import { Card, Form, Select, InputNumber, Button, Space, Input, Row, Col, App } from 'antd'
 import { RiseOutlined, FallOutlined, ClearOutlined } from '@ant-design/icons'
 import styled from 'styled-components'
 
@@ -119,6 +119,7 @@ const symbols = [
 ]
 
 const QuickTradePanel: React.FC = () => {
+  const { message } = App.useApp()
   const [form] = Form.useForm()
   const [isSubmitting, setIsSubmitting] = useState(false)
 

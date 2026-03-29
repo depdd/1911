@@ -5,16 +5,22 @@ import bcrypt
 import jwt
 import secrets
 import re
+import random
+import string
+import redis
 from models import User, UserSettings, UserAPIKey, UserOperationLog, UserMT5Account, UserStrategy, UserSubscription, Payment
 from config import Config
+from services.email_service import email_service
 
 auth_bp = Blueprint('auth', __name__)
 
 get_db_session = None
+redis_client = None
 
-def init_auth_blueprint(db_session_getter):
-    global get_db_session
+def init_auth_blueprint(db_session_getter, redis=None):
+    global get_db_session, redis_client
     get_db_session = db_session_getter
+    redis_client = redis
     return auth_bp
 
 JWT_SECRET = Config.SECRET_KEY if hasattr(Config, 'SECRET_KEY') else 'your-secret-key-change-in-production'
@@ -281,7 +287,8 @@ def login():
             'email': user.email,
             'username': user.username,
             'membership_level': user.membership_level,
-            'membership_expire_at': user.membership_expire_at.isoformat() if user.membership_expire_at else None
+            'membership_expire_at': user.membership_expire_at.isoformat() if user.membership_expire_at else None,
+            'is_admin': user.is_admin or False
         }
     }), 200
 
@@ -307,6 +314,7 @@ def get_current_user():
         'membership_level': user.membership_level,
         'membership_expire_at': user.membership_expire_at.isoformat() if user.membership_expire_at else None,
         'is_verified': user.is_verified,
+        'is_admin': user.is_admin or False,
         'created_at': user.created_at.isoformat(),
         'stats': {
             'accounts_count': accounts_count,
@@ -477,3 +485,248 @@ def refresh_token():
         'token': token,
         'message': 'Token refreshed'
     }), 200
+
+
+VERIFICATION_CODE_EXPIRE_MINUTES = 5
+VERIFICATION_CODE_LENGTH = 6
+
+
+def generate_verification_code():
+    return ''.join(random.choices(string.digits, k=VERIFICATION_CODE_LENGTH))
+
+
+def get_code_key(email: str, code_type: str) -> str:
+    return f'verification_code:{code_type}:{email.lower()}'
+
+
+def get_rate_limit_key(email: str) -> str:
+    return f'rate_limit:send_code:{email.lower()}'
+
+
+@auth_bp.route('/send-code', methods=['POST'])
+def send_verification_code():
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip().lower()
+        code_type = data.get('type', 'auto')
+        
+        if not email:
+            return jsonify({'error': '邮箱不能为空'}), 400
+        
+        if not validate_email(email):
+            return jsonify({'error': '邮箱格式不正确'}), 400
+        
+        session = get_db_session()
+        existing_user = session.query(User).filter_by(email=email).first()
+        is_registered = existing_user is not None
+        
+        if code_type == 'register' and is_registered:
+            return jsonify({'error': '该邮箱已被注册'}), 400
+        
+        if redis_client:
+            rate_limit_key = get_rate_limit_key(email)
+            if redis_client.exists(rate_limit_key):
+                ttl = redis_client.ttl(rate_limit_key)
+                return jsonify({'error': f'请等待 {ttl} 秒后再试'}), 429
+        
+        actual_code_type = 'login' if is_registered else 'register'
+        code = generate_verification_code()
+        
+        if redis_client:
+            code_key = get_code_key(email, actual_code_type)
+            redis_client.setex(code_key, VERIFICATION_CODE_EXPIRE_MINUTES * 60, code)
+            redis_client.setex(rate_limit_key, 60, '1')
+        
+        if email_service.is_configured():
+            success = email_service.send_verification_code(email, code, actual_code_type)
+            if not success:
+                return jsonify({'error': '验证码发送失败，请稍后重试'}), 500
+        else:
+            print(f"[验证码-开发模式] 邮箱: {email}, 类型: {actual_code_type}, 验证码: {code}")
+        
+        return jsonify({
+            'message': '验证码已发送，请查收邮件',
+            'expire_in': VERIFICATION_CODE_EXPIRE_MINUTES * 60,
+            'is_registered': is_registered,
+            'code_type': actual_code_type
+        }), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'服务器错误: {str(e)}'}), 500
+
+
+@auth_bp.route('/verify-code', methods=['POST'])
+def verify_code():
+    data = request.get_json()
+    email = data.get('email', '').strip().lower()
+    code = data.get('code', '')
+    code_type = data.get('type', 'register')
+    
+    if not email or not code:
+        return jsonify({'error': '邮箱和验证码不能为空'}), 400
+    
+    if not redis_client:
+        return jsonify({'error': '验证码服务不可用'}), 500
+    
+    code_key = get_code_key(email, code_type)
+    stored_code = redis_client.get(code_key)
+    
+    if not stored_code:
+        return jsonify({'error': '验证码已过期或不存在'}), 400
+    
+    if stored_code != code:
+        return jsonify({'error': '验证码错误'}), 400
+    
+    redis_client.delete(code_key)
+    
+    return jsonify({'message': '验证码验证成功'}), 200
+
+
+@auth_bp.route('/register-with-code', methods=['POST'])
+def register_with_code():
+    data = request.get_json()
+    
+    email = data.get('email', '').strip().lower()
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    code = data.get('code', '')
+    
+    if not email or not username or not password or not code:
+        return jsonify({'error': '邮箱、用户名、密码和验证码都不能为空'}), 400
+    
+    if not validate_email(email):
+        return jsonify({'error': '邮箱格式不正确'}), 400
+    
+    password_validation = validate_password(password)
+    if not password_validation['valid']:
+        return jsonify({'error': password_validation['errors']}), 400
+    
+    if len(username) < 3 or len(username) > 50:
+        return jsonify({'error': '用户名长度必须在3到50个字符之间'}), 400
+    
+    if not redis_client:
+        return jsonify({'error': '验证码服务不可用'}), 500
+    
+    code_key = get_code_key(email, 'register')
+    stored_code = redis_client.get(code_key)
+    
+    if not stored_code:
+        return jsonify({'error': '验证码已过期或不存在'}), 400
+    
+    if stored_code != code:
+        return jsonify({'error': '验证码错误'}), 400
+    
+    redis_client.delete(code_key)
+    
+    session = get_db_session()
+    
+    existing_user = session.query(User).filter(
+        (User.email == email) | (User.username == username)
+    ).first()
+    
+    if existing_user:
+        if existing_user.email == email:
+            return jsonify({'error': '该邮箱已被注册'}), 400
+        return jsonify({'error': '该用户名已被使用'}), 400
+    
+    password_hash = hash_password(password)
+    
+    user = User(
+        email=email,
+        username=username,
+        password_hash=password_hash,
+        membership_level='free',
+        is_active=True,
+        is_verified=True
+    )
+    session.add(user)
+    session.flush()
+    
+    user_settings = UserSettings(
+        user_id=user.id,
+        theme='dark',
+        language='zh',
+        timezone='Asia/Shanghai'
+    )
+    session.add(user_settings)
+    
+    session.commit()
+    
+    token = generate_jwt(user.id)
+    
+    log_operation(user.id, 'register', f'用户通过验证码注册: {email}')
+    
+    return jsonify({
+        'message': '注册成功',
+        'token': token,
+        'user': {
+            'id': user.id,
+            'email': user.email,
+            'username': user.username,
+            'membership_level': user.membership_level
+        }
+    }), 201
+
+
+@auth_bp.route('/login-with-code', methods=['POST'])
+def login_with_code():
+    data = request.get_json()
+    
+    email = data.get('email', '').strip().lower()
+    code = data.get('code', '')
+    
+    if not email or not code:
+        return jsonify({'error': '邮箱和验证码不能为空'}), 400
+    
+    if not validate_email(email):
+        return jsonify({'error': '邮箱格式不正确'}), 400
+    
+    if not redis_client:
+        return jsonify({'error': '验证码服务不可用'}), 500
+    
+    code_key = get_code_key(email, 'login')
+    stored_code = redis_client.get(code_key)
+    
+    if not stored_code:
+        return jsonify({'error': '验证码已过期或不存在'}), 400
+    
+    if stored_code != code:
+        return jsonify({'error': '验证码错误'}), 400
+    
+    redis_client.delete(code_key)
+    
+    session = get_db_session()
+    user = session.query(User).filter_by(email=email).first()
+    
+    if user:
+        if not user.is_active:
+            return jsonify({'error': '账户已被禁用'}), 401
+        
+        user.last_login_at = datetime.utcnow()
+        user.last_login_ip = get_client_ip()
+        session.commit()
+        
+        token = generate_jwt(user.id)
+        
+        log_operation(user.id, 'login', '用户通过验证码登录成功')
+        
+        return jsonify({
+            'message': '登录成功',
+            'token': token,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'membership_level': user.membership_level,
+                'membership_expire_at': user.membership_expire_at.isoformat() if user.membership_expire_at else None,
+                'is_admin': user.is_admin or False
+            },
+            'is_new_user': False
+        }), 200
+    else:
+        return jsonify({
+            'message': '验证码验证成功，请完成注册',
+            'email': email,
+            'is_new_user': True
+        }), 200

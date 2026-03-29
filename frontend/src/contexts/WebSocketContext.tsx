@@ -124,14 +124,15 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
         dispatch({ type: 'CONNECT_SUCCESS' })
         reconnectAttempts.current = 0
         
-        // 重新订阅之前的频道
-        state.subscriptions.forEach(channel => {
-          sendMessage({
-            type: 'subscribe',
-            data: { channels: [channel] },
-            timestamp: new Date().toISOString()
-          })
-        })
+        setTimeout(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            sendMessage({
+              type: 'resubscribe',
+              data: { channels: state.subscriptions },
+              timestamp: new Date().toISOString()
+            })
+          }
+        }, 100)
       }
       
       wsRef.current.onmessage = (event) => {

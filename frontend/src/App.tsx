@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Spin } from 'antd'
+import { Layout, Spin, App as AntApp } from 'antd'
 import styled from 'styled-components'
 
 import { useAuth } from './contexts/AuthContext'
 import { useWebSocket } from './contexts/WebSocketContext'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
-import { UserProvider, useUser } from './contexts/UserContext'
+import { UserProvider, useUser, useLogoutListener } from './contexts/UserContext'
+import { PageStateProvider } from './contexts/PageStateContext'
 import Sidebar from './components/Layout/Sidebar'
 import Header from './components/Layout/Header'
 import Dashboard from './components/Dashboard/Dashboard'
@@ -22,6 +23,7 @@ import LoginPage from './components/Auth/LoginPage'
 import UserCenter from './components/Auth/UserCenter'
 import PricingPage from './components/Auth/PricingPage'
 import MT5SetupGuide from './components/Auth/MT5SetupGuide'
+import AdminDashboard from './components/Admin/AdminDashboard'
 
 const { Content } = Layout
 
@@ -55,6 +57,10 @@ const LoadingText = styled.div<{ $color: string }>`
   font-weight: 500;
   color: ${props => props.$color};
   letter-spacing: 1px;
+`
+
+const PageWrapper = styled.div<{ $active: boolean }>`
+  display: ${props => props.$active ? 'block' : 'none'};
 `
 
 interface ProtectedRouteProps {
@@ -152,18 +158,73 @@ const LoginPageRoute: React.FC = () => {
   return <LoginPage onLoginSuccess={refreshUser} />
 }
 
+const PAGE_COMPONENTS = {
+  '/dashboard': Dashboard,
+  '/market': MarketData,
+  '/trading': TradingPanel,
+  '/strategies': StrategyStore,
+  '/analytics': Analytics,
+  '/alerts': AlertsPage,
+  '/api-keys': APIKeysPage,
+  '/settings': Settings,
+  '/user-center': UserCenter,
+  '/pricing': PricingPage,
+  '/mt5-setup': MT5SetupGuide,
+  '/admin': AdminDashboard,
+}
+
 const MainLayout: React.FC = () => {
   const { theme } = useTheme()
-  const { mt5Accounts } = useUser()
+  const { mt5Accounts, isLoading } = useUser()
   const navigate = useNavigate()
-  const [checked, setChecked] = useState(false)
+  const location = useLocation()
+  const hasRedirected = useRef(false)
+  
+  const [mountedPages, setMountedPages] = useState<Set<string>>(new Set(['/dashboard']))
+  const pageRefs = useRef<Map<string, any>>(new Map())
+
+  const clearAllPages = useCallback(() => {
+    setMountedPages(new Set(['/dashboard']))
+    pageRefs.current.clear()
+  }, [])
+
+  useLogoutListener(clearAllPages)
 
   useEffect(() => {
-    if (!checked && mt5Accounts.length === 0) {
-      setChecked(true)
+    if (isLoading || hasRedirected.current) return
+    
+    console.log('MainLayout - Checking mt5Accounts:', mt5Accounts)
+    console.log('MainLayout - Current path:', location.pathname)
+    
+    if (mt5Accounts.length === 0 && location.pathname !== '/mt5-setup' && location.pathname !== '/user-center') {
+      console.log('MainLayout - No accounts, redirecting to mt5-setup')
+      hasRedirected.current = true
       navigate('/mt5-setup', { replace: true })
     }
-  }, [mt5Accounts, navigate, checked])
+  }, [mt5Accounts, isLoading, navigate, location.pathname])
+
+  useEffect(() => {
+    if (mt5Accounts.length > 0) {
+      hasRedirected.current = false
+    }
+  }, [mt5Accounts])
+
+  useEffect(() => {
+    const currentPath = location.pathname
+    if (currentPath !== '/' && PAGE_COMPONENTS[currentPath as keyof typeof PAGE_COMPONENTS]) {
+      setMountedPages(prev => new Set(prev).add(currentPath))
+    }
+  }, [location.pathname])
+
+  const currentPath = location.pathname
+
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <Spin size="large" />
+      </div>
+    )
+  }
 
   return (
     <AppLayout $background={theme.colors.background}>
@@ -174,20 +235,18 @@ const MainLayout: React.FC = () => {
           $bgColor={`${theme.colors.backgroundLight}cc`}
           $borderColor={theme.colors.border}
         >
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/market" element={<MarketData />} />
-            <Route path="/trading" element={<TradingPanel />} />
-            <Route path="/strategies" element={<StrategyStore />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/alerts" element={<AlertsPage />} />
-            <Route path="/api-keys" element={<APIKeysPage />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/user-center" element={<UserCenter />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/mt5-setup" element={<MT5SetupGuide />} />
-          </Routes>
+          {currentPath === '/' && <Navigate to="/dashboard" replace />}
+          
+          {Array.from(mountedPages).map(pagePath => {
+            const Component = PAGE_COMPONENTS[pagePath as keyof typeof PAGE_COMPONENTS]
+            if (!Component) return null
+            
+            return (
+              <PageWrapper key={pagePath} $active={currentPath === pagePath}>
+                <Component />
+              </PageWrapper>
+            )
+          })}
         </AppContent>
       </Layout>
     </AppLayout>
@@ -198,7 +257,11 @@ const App: React.FC = () => {
   return (
     <ThemeProvider>
       <UserProvider>
-        <AppContentWrapper />
+        <PageStateProvider>
+          <AntApp>
+            <AppContentWrapper />
+          </AntApp>
+        </PageStateProvider>
       </UserProvider>
     </ThemeProvider>
   )

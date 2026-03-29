@@ -80,8 +80,8 @@ class WebSocketService {
       
       this.socket.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data)
-          this.handleMessage(data)
+          const rawData = JSON.parse(event.data)
+          this.handleMessage(rawData)
         } catch (error) {
           console.error('WebSocket消息解析失败:', error)
           this.callbacks.onError.forEach(callback => callback(error as Error))
@@ -144,14 +144,6 @@ class WebSocketService {
         return
       }
 
-      // 减少日志输出，只记录关键信息
-      if (type === 'tick_data' || type === 'kline_data') {
-        console.log(`WebSocketService - 收到${type}消息:`, {
-          symbol: payload?.symbol,
-          time: payload?.time
-        })
-      }
-
       switch (type) {
         case 'tick_data':
           if (!payload || !payload.symbol) {
@@ -159,16 +151,7 @@ class WebSocketService {
             return
           }
           
-          // 标准化tick数据，确保时间戳格式统一
           const standardizedTick = this.standardizeTickData(payload)
-          
-          // 优化重复检测逻辑 - 放宽检测条件
-          if (this.isDuplicateTick(standardizedTick)) {
-            return
-          }
-          
-          // 记录处理成功的tick
-          this.recordProcessedTick(standardizedTick)
           
           this.callbacks.onTick.forEach(callback => {
             try {
@@ -232,103 +215,27 @@ class WebSocketService {
   }
   
   private standardizeTickData(tickData: any): any {
-    // 关键修复：统一时间戳处理逻辑
-    let timestamp: number
-    let time: number
-    
-    // 优先使用tickData中的time字段（这应该是Redis中的秒级时间戳）
-    if (tickData.time && typeof tickData.time === 'number') {
-      // 从monitor_redis_ticks.py可以看到，Redis存储的是秒级时间戳
-      time = tickData.time  // 秒级时间戳
-      timestamp = time * 1000  // 转换为毫秒级
-    } else if (tickData.timestamp) {
-      // 如果有timestamp字段，使用它
-      const ts = Number(tickData.timestamp)
-      if (ts < 10000000000) {
-        // 秒级时间戳
-        time = ts
-        timestamp = ts * 1000
-      } else {
-        // 毫秒级时间戳
-        timestamp = ts
-        time = Math.floor(ts / 1000)
-      }
-    } else {
-      // 如果没有time字段，使用当前时间
-      const now = Date.now()
-      time = Math.floor(now / 1000)
-      timestamp = now
-    }
-    
-    // 应用时间偏移校正（如果已同步）
-    if (this.timeOffset !== 0) {
-      timestamp += this.timeOffset
-      time = Math.floor(timestamp / 1000)
-    }
-    
-    // 标准化成交量
     const volume = this.normalizeVolume(tickData)
     
-    // 返回标准化的tick数据
     return {
       ...tickData,
       symbol: tickData.symbol || 'UNKNOWN',
       bid: Number(tickData.bid) || 0,
       ask: Number(tickData.ask) || 0,
-      timestamp: timestamp, // 毫秒级时间戳
-      time: time, // 秒级时间戳
+      time: tickData.time || Math.floor(Date.now() / 1000),
       volume: volume,
       volume_real: volume,
-      volumeReal: volume, // 添加驼峰命名的字段，与类型定义一致
+      volumeReal: volume,
     }
   }
   
   private standardizeKlineData(klineData: any): any {
-    // 标准化kline数据，确保时间戳格式统一
-    let time: number
-    
-    // 确保time是数字格式
-    if (klineData.time && typeof klineData.time === 'object' && klineData.time instanceof Date) {
-      // 如果是Date对象，转换为秒级时间戳
-      time = Math.floor(klineData.time.getTime() / 1000)
-    } else if (klineData.time && typeof klineData.time === 'number') {
-      time = klineData.time
-    } else if (klineData.time && typeof klineData.time === 'string') {
-      // 如果是字符串，尝试解析为Date对象
-      const date = new Date(klineData.time)
-      if (!isNaN(date.getTime())) {
-        // 如果是有效的日期字符串，转换为秒级时间戳
-        time = Math.floor(date.getTime() / 1000)
-      } else {
-        // 尝试直接解析为数字
-        time = Number(klineData.time)
-      }
-    } else {
-      // 如果没有time字段或无法解析，使用当前时间的K线开始时间
-      const now = Date.now()
-      time = Math.floor(now / 60000) * 60  // 默认分钟级K线
-    }
-    
-    // 确保最终time是有效的数字，如果不是则使用当前时间
-    if (isNaN(time)) {
-      const now = Date.now()
-      time = Math.floor(now / 60000) * 60  // 默认分钟级K线
-    }
-    
-    // 应用时间偏移校正
-    if (this.timeOffset !== 0) {
-      const correctedTime = time * 1000 + this.timeOffset
-      time = Math.floor(correctedTime / 1000)
-    }
-    
-    // 标准化成交量
     const volume = this.normalizeVolume(klineData)
     
-    // 返回标准化的kline数据
     return {
       ...klineData,
       symbol: klineData.symbol || 'UNKNOWN',
-      time: time, // 确保是数字格式的时间戳
+      time: klineData.time || Math.floor(Date.now() / 1000),
       open: Number(klineData.open) || 0,
       high: Number(klineData.high) || 0,
       low: Number(klineData.low) || 0,
@@ -360,34 +267,14 @@ class WebSocketService {
     return 0
   }
   
-  private isDuplicateTick(tickData: any): boolean {
-    // 优化的重复检测逻辑 - 放宽检测条件
-    const key = `${tickData.symbol}_${Math.floor(tickData.timestamp / 100)}` // 每100毫秒一个窗口
-    const lastTick = this.lastProcessedTicks.get(key)
-    
-    if (lastTick && tickData.timestamp - lastTick.timestamp < 50) {
-      // 50毫秒内的tick视为可能重复
-      // 增加计数但不丢弃，让图表层决定如何处理
-      lastTick.count++
-      return false // 不再丢弃，让上层处理
-    }
-    
+  // @ts-ignore - reserved for future use
+  private _isDuplicateTick(_tickData: any): boolean {
     return false
   }
   
-  private recordProcessedTick(tickData: any): void {
-    const key = `${tickData.symbol}_${Math.floor(tickData.timestamp / 100)}`
-    this.lastProcessedTicks.set(key, {
-      timestamp: tickData.timestamp,
-      count: 1
-    })
-    
-    // 清理旧的记录（避免内存泄漏）
-    if (this.lastProcessedTicks.size > 1000) {
-      const keys = Array.from(this.lastProcessedTicks.keys())
-      const keysToDelete = keys.slice(0, Math.floor(keys.length / 2))
-      keysToDelete.forEach(k => this.lastProcessedTicks.delete(k))
-    }
+  // @ts-ignore - reserved for future use
+  private _recordProcessedTick(_tickData: any): void {
+    // reserved for future use
   }
   
   private startHeartbeat(): void {

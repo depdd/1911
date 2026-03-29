@@ -22,8 +22,9 @@ def get_user_strategies():
     
     strategies = session.query(UserStrategy).filter_by(user_id=user.id).all()
     
-    return jsonify({
-        'strategies': [{
+    result = []
+    for s in strategies:
+        strategy_data = {
             'id': s.id,
             'strategy_name': s.strategy_name,
             'template_id': s.template_id,
@@ -41,8 +42,23 @@ def get_user_strategies():
                 'account_name': s.mt5_account.account_name,
                 'login': s.mt5_account.login
             } if s.mt5_account else None
-        } for s in strategies]
-    }), 200
+        }
+        
+        if s.status == 'running' and s.id in active_strategies:
+            instance = active_strategies[s.id].get('instance')
+            if instance and hasattr(instance, 'get_performance'):
+                try:
+                    performance = instance.get_performance()
+                    strategy_data['total_trades'] = performance.get('total_trades', 0)
+                    strategy_data['total_profit'] = performance.get('total_profit', 0.0)
+                    strategy_data['win_rate'] = performance.get('win_rate', 0.0)
+                    strategy_data['max_drawdown'] = performance.get('max_drawdown', 0.0)
+                except Exception as e:
+                    print(f"获取策略性能失败: {e}")
+        
+        result.append(strategy_data)
+    
+    return jsonify({'strategies': result}), 200
 
 @user_strategies_bp.route('/<int:strategy_id>', methods=['GET'])
 @jwt_required
@@ -234,7 +250,7 @@ def start_user_strategy(strategy_id):
             mt5.shutdown()
             return jsonify({'error': f'Unknown strategy template: {strategy.template_id}'}), 400
         
-        strategy_instance = strategy_class(params, strategy_id=strategy.strategy_id)
+        strategy_instance = strategy_class(params, strategy_id=strategy.id)
         
         def run_strategy():
             try:
@@ -284,7 +300,15 @@ def stop_user_strategy(strategy_id):
     
     if strategy_id in active_strategies:
         try:
-            active_strategies[strategy_id]['instance'].stop()
+            instance = active_strategies[strategy_id]['instance']
+            instance.stop()
+            
+            performance = instance.get_performance() if hasattr(instance, 'get_performance') else {}
+            strategy.total_trades = performance.get('total_trades', 0)
+            strategy.total_profit = performance.get('total_profit', 0.0)
+            strategy.win_rate = performance.get('win_rate', 0.0)
+            strategy.max_drawdown = performance.get('max_drawdown', 0.0)
+            
             active_strategies[strategy_id]['mt5'].shutdown()
             del active_strategies[strategy_id]
         except Exception as e:
@@ -315,9 +339,8 @@ def get_strategy_logs(strategy_id):
     if not strategy:
         return jsonify({'error': 'Strategy not found'}), 404
     
-    from strategies.strategy_logger import StrategyLogger
-    logger = StrategyLogger()
-    logs = logger.get_logs(strategy.strategy_name, limit=100)
+    from strategies.strategy_logger import strategy_logger
+    logs = strategy_logger.get_logs(str(strategy_id), limit=100)
     
     return jsonify({
         'logs': logs

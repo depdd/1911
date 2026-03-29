@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import styled from 'styled-components'
+import { useNavigate } from 'react-router-dom'
+import { App } from 'antd'
 import { useUser } from '../../contexts/UserContext'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { userAuthService } from '../../services/userAuthService'
@@ -10,72 +12,175 @@ const Container = styled.div`
   margin: 0 auto;
 `
 
-const Title = styled.h1`
-  color: ${props => props.theme.colors.text};
-  font-size: 24px;
-  font-weight: 600;
-  margin-bottom: 24px;
+const PageHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 32px;
+  padding: 32px;
+  background: linear-gradient(135deg, ${props => props.theme.colors.primary}15, ${props => props.theme.colors.primary}05);
+  border-radius: 20px;
+  border: 1px solid ${props => props.theme.colors.border};
 `
 
-const Grid = styled.div`
+const Avatar = styled.div<{ $level: string }>`
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: ${props => {
+    switch (props.$level) {
+      case 'enterprise': return 'linear-gradient(135deg, #7c3aed, #a855f7)'
+      case 'pro': return 'linear-gradient(135deg, #2563eb, #3b82f6)'
+      case 'basic': return 'linear-gradient(135deg, #059669, #10b981)'
+      default: return 'linear-gradient(135deg, #6b7280, #9ca3af)'
+    }
+  }};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  color: white;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+`
+
+const UserInfo = styled.div`
+  flex: 1;
+`
+
+const UserName = styled.h1`
+  color: ${props => props.theme.colors.text};
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+`
+
+const UserEmail = styled.p`
+  color: ${props => props.theme.colors.textSecondary};
+  font-size: 14px;
+  margin-bottom: 12px;
+`
+
+const Badge = styled.span<{ $level: string }>`
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  background: ${props => {
+    switch (props.$level) {
+      case 'enterprise': return 'linear-gradient(135deg, #7c3aed, #a855f7)'
+      case 'pro': return 'linear-gradient(135deg, #2563eb, #3b82f6)'
+      case 'basic': return 'linear-gradient(135deg, #059669, #10b981)'
+      default: return '#6b7280'
+    }
+  }};
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  
+  &::before {
+    content: '★';
+  }
+`
+
+const StatsGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+`
+
+const StatCard = styled.div`
+  background: ${props => props.theme.colors.backgroundLight};
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid ${props => props.theme.colors.border};
+  transition: transform 0.2s, box-shadow 0.2s;
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  }
+`
+
+const StatIcon = styled.div<{ $color: string }>`
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: ${props => props.$color}20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 12px;
+`
+
+const StatValue = styled.div`
+  color: ${props => props.theme.colors.text};
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 4px;
+`
+
+const StatLabel = styled.div`
+  color: ${props => props.theme.colors.textSecondary};
+  font-size: 13px;
+`
+
+const StatProgress = styled.div`
+  margin-top: 12px;
+  height: 6px;
+  background: ${props => props.theme.colors.border};
+  border-radius: 3px;
+  overflow: hidden;
+`
+
+const StatProgressBar = styled.div<{ $percent: number; $color: string }>`
+  height: 100%;
+  width: ${props => props.$percent}%;
+  background: ${props => props.$color};
+  border-radius: 3px;
+  transition: width 0.3s;
+`
+
+const ContentGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 24px;
+  
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
 `
 
 const Card = styled.div`
   background: ${props => props.theme.colors.backgroundLight};
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 24px;
+  border: 1px solid ${props => props.theme.colors.border};
+`
+
+const CardHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid ${props => props.theme.colors.border};
 `
 
 const CardTitle = styled.h2`
   color: ${props => props.theme.colors.text};
   font-size: 16px;
   font-weight: 600;
-  margin-bottom: 16px;
   display: flex;
   align-items: center;
-  gap: 8px;
-`
-
-const InfoRow = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid ${props => props.theme.colors.border};
+  gap: 10px;
   
-  &:last-child {
-    border-bottom: none;
+  span {
+    font-size: 20px;
   }
-`
-
-const InfoLabel = styled.span`
-  color: ${props => props.theme.colors.textSecondary};
-  font-size: 14px;
-`
-
-const InfoValue = styled.span`
-  color: ${props => props.theme.colors.text};
-  font-size: 14px;
-  font-weight: 500;
-`
-
-const Badge = styled.span<{ $level: string }>`
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-  background: ${props => {
-    switch (props.$level) {
-      case 'enterprise': return '#7c3aed'
-      case 'pro': return '#2563eb'
-      case 'basic': return '#059669'
-      default: return '#6b7280'
-    }
-  }};
-  color: white;
 `
 
 const FormGroup = styled.div`
@@ -84,31 +189,38 @@ const FormGroup = styled.div`
 
 const Label = styled.label`
   display: block;
-  color: ${props => props.theme.colors.text};
-  font-size: 14px;
+  color: ${props => props.theme.colors.textSecondary};
+  font-size: 13px;
   margin-bottom: 8px;
+  font-weight: 500;
 `
 
 const Input = styled.input`
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px 16px;
   background: ${props => props.theme.colors.background};
   border: 1px solid ${props => props.theme.colors.border};
-  border-radius: 8px;
+  border-radius: 10px;
   color: ${props => props.theme.colors.text};
   font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
   
   &:focus {
     outline: none;
     border-color: ${props => props.theme.colors.primary};
+    box-shadow: 0 0 0 3px ${props => props.theme.colors.primary}20;
+  }
+  
+  &::placeholder {
+    color: ${props => props.theme.colors.textSecondary};
   }
 `
 
-const Button = styled.button<{ $variant?: 'primary' | 'secondary' | 'danger' }>`
-  padding: 10px 20px;
-  border-radius: 8px;
+const Button = styled.button<{ $variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }>`
+  padding: 12px 24px;
+  border-radius: 10px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
   
@@ -127,22 +239,34 @@ const Button = styled.button<{ $variant?: 'primary' | 'secondary' | 'danger' }>`
         `
       case 'secondary':
         return `
-          background: transparent;
+          background: ${props.theme.colors.background};
           border: 1px solid ${props.theme.colors.border};
           color: ${props.theme.colors.text};
           
           &:hover {
-            background: rgba(255, 255, 255, 0.05);
+            border-color: ${props.theme.colors.primary};
+            color: ${props.theme.colors.primary};
+          }
+        `
+      case 'ghost':
+        return `
+          background: transparent;
+          border: none;
+          color: ${props.theme.colors.textSecondary};
+          
+          &:hover {
+            color: ${props.theme.colors.text};
           }
         `
       default:
         return `
-          background: ${props.theme.colors.primary};
+          background: linear-gradient(135deg, ${props.theme.colors.primary}, ${props.theme.colors.primary}dd);
           border: none;
           color: white;
           
           &:hover {
-            opacity: 0.9;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px ${props.theme.colors.primary}40;
           }
         `
     }
@@ -151,35 +275,53 @@ const Button = styled.button<{ $variant?: 'primary' | 'secondary' | 'danger' }>`
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    transform: none;
   }
 `
 
 const ButtonGroup = styled.div`
   display: flex;
   gap: 12px;
-  margin-top: 16px;
+  margin-top: 20px;
 `
 
 const ErrorMessage = styled.div`
   color: #ef4444;
   font-size: 12px;
   margin-top: 8px;
+  padding: 8px 12px;
+  background: #ef444415;
+  border-radius: 8px;
 `
 
 const SuccessMessage = styled.div`
   color: #22c55e;
   font-size: 12px;
   margin-top: 8px;
+  padding: 8px 12px;
+  background: #22c55e15;
+  border-radius: 8px;
+`
+
+const AccountList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 `
 
 const AccountCard = styled.div`
   background: ${props => props.theme.colors.background};
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 16px;
-  margin-bottom: 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border: 1px solid ${props => props.theme.colors.border};
+  transition: border-color 0.2s;
+  
+  &:hover {
+    border-color: ${props => props.theme.colors.primary}40;
+  }
 `
 
 const AccountInfo = styled.div`
@@ -188,22 +330,69 @@ const AccountInfo = styled.div`
 
 const AccountName = styled.div`
   color: ${props => props.theme.colors.text};
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`
+
+const PrimaryTag = styled.span`
+  font-size: 10px;
+  padding: 2px 8px;
+  background: #22c55e20;
+  color: #22c55e;
+  border-radius: 10px;
+  font-weight: 500;
 `
 
 const AccountDetail = styled.div`
   color: ${props => props.theme.colors.textSecondary};
-  font-size: 12px;
+  font-size: 13px;
 `
 
 const StatusBadge = styled.span<{ $status: string }>`
-  padding: 2px 8px;
-  border-radius: 12px;
+  padding: 4px 12px;
+  border-radius: 20px;
   font-size: 11px;
-  background: ${props => props.$status === 'connected' ? '#22c55e20' : '#ef444420'};
-  color: ${props => props.$status === 'connected' ? '#22c55e' : '#ef4444'};
+  font-weight: 500;
+  background: ${props => props.$status === 'connected' ? '#22c55e20' : '#f59e0b20'};
+  color: ${props => props.$status === 'connected' ? '#22c55e' : '#f59e0b'};
+`
+
+const AccountActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`
+
+const ActionButton = styled.button`
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: ${props => props.theme.colors.backgroundLight};
+  border: 1px solid ${props => props.theme.colors.border};
+  color: ${props => props.theme.colors.text};
+  
+  &:hover {
+    border-color: ${props => props.theme.colors.primary};
+    color: ${props => props.theme.colors.primary};
+  }
+`
+
+const DeleteButton = styled(ActionButton)`
+  border-color: #ef444440;
+  color: #ef4444;
+  
+  &:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: white;
+  }
 `
 
 const Modal = styled.div`
@@ -217,25 +406,82 @@ const Modal = styled.div`
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(4px);
 `
 
 const ModalContent = styled.div`
   background: ${props => props.theme.colors.backgroundLight};
-  border-radius: 12px;
-  padding: 24px;
+  border-radius: 20px;
+  padding: 32px;
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
+  border: 1px solid ${props => props.theme.colors.border};
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
 `
 
 const ModalTitle = styled.h3`
   color: ${props => props.theme.colors.text};
-  font-size: 18px;
-  margin-bottom: 20px;
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  
+  span {
+    font-size: 24px;
+  }
+`
+
+const FullWidthCard = styled(Card)`
+  grid-column: 1 / -1;
+`
+
+const UpgradeBanner = styled.div`
+  background: linear-gradient(135deg, ${props => props.theme.colors.primary}20, ${props => props.theme.colors.primary}10);
+  border: 1px solid ${props => props.theme.colors.primary}40;
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+`
+
+const UpgradeText = styled.div`
+  color: ${props => props.theme.colors.text};
+  font-size: 14px;
+  
+  span {
+    color: ${props => props.theme.colors.textSecondary};
+    font-size: 12px;
+    display: block;
+    margin-top: 4px;
+  }
+`
+
+const EmptyState = styled.div`
+  text-align: center;
+  padding: 48px 24px;
+  color: ${props => props.theme.colors.textSecondary};
+  
+  div {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+  
+  p {
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
 `
 
 const UserCenter: React.FC = () => {
+  const navigate = useNavigate()
   const { user, mt5Accounts, refreshUser, refreshAccounts, addMT5Account, deleteMT5Account, subscription } = useUser()
   const { t } = useLanguage()
+  const { message } = App.useApp()
   
   const [username, setUsername] = useState(user?.username || '')
   const [profileLoading, setProfileLoading] = useState(false)
@@ -301,6 +547,11 @@ const UserCenter: React.FC = () => {
   }
 
   const handleAddAccount = async () => {
+    if (!newAccount.account_name || !newAccount.login || !newAccount.password || !newAccount.server) {
+      setAccountError('请填写所有必填字段')
+      return
+    }
+    
     setAccountLoading(true)
     setAccountError(null)
     
@@ -314,20 +565,29 @@ const UserCenter: React.FC = () => {
       }
     }
     
-    const result = await addMT5Account(newAccount)
-    
-    if (result.success) {
-      setShowAddAccount(false)
-      setNewAccount({ account_name: '', login: '', password: '', server: '' })
-    } else {
-      setAccountError(result.error || t('user.failedToAddAccount'))
+    try {
+      const result = await addMT5Account(newAccount)
+      
+      if (result.success) {
+        setShowAddAccount(false)
+        setNewAccount({ account_name: '', login: '', password: '', server: '' })
+        setAccountError(null)
+        message.success('MT5账户添加成功！')
+        setTimeout(() => {
+          navigate('/dashboard', { replace: true })
+        }, 1000)
+      } else {
+        setAccountError(result.error || t('user.failedToAddAccount'))
+      }
+    } catch (error: any) {
+      setAccountError(error.message || '添加账户失败，请稍后重试')
+    } finally {
+      setAccountLoading(false)
     }
-    
-    setAccountLoading(false)
   }
 
   const handleDeleteAccount = async (id: number) => {
-    if (window.confirm('Are you sure you want to delete this account?')) {
+    if (window.confirm('确定要删除这个账户吗？')) {
       await deleteMT5Account(id)
     }
   }
@@ -335,261 +595,288 @@ const UserCenter: React.FC = () => {
   const handleTestConnection = async (id: number) => {
     const result = await userAuthService.testMT5Connection(id)
     if (result.success) {
-      alert(t('user.connectionSuccessful'))
+      message.success(t('user.connectionSuccessful'))
       refreshAccounts()
     } else {
-      alert(result.error || t('user.connectionFailed'))
+      message.error(result.error || t('user.connectionFailed'))
     }
+  }
+
+  const getLevelName = (level: string) => {
+    const names: Record<string, string> = {
+      free: '免费版',
+      basic: '基础版',
+      pro: '专业版',
+      enterprise: '企业版'
+    }
+    return names[level] || level
   }
 
   if (!user) return null
 
+  const strategyLimit = subscription?.limits?.strategies || 1
+  const accountLimit = subscription?.limits?.accounts || 1
+  const strategyCount = user.stats?.strategies_count || 0
+  const accountCount = user.stats?.accounts_count || 0
+
   return (
     <Container>
-      <Title>User Center</Title>
-      
-      <Grid>
-        <Card>
-          <CardTitle>👤 {t('user.profile')}</CardTitle>
-          
-          <InfoRow>
-            <InfoLabel>{t('user.email')}</InfoLabel>
-            <InfoValue>{user.email}</InfoValue>
-          </InfoRow>
-          
-          <InfoRow>
-            <InfoLabel>{t('user.username')}</InfoLabel>
-            <InfoValue>
-              <Input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                style={{ width: '200px', padding: '6px 10px' }}
+      <PageHeader>
+        <Avatar $level={user.membership_level}>
+          {user.username?.charAt(0).toUpperCase() || 'U'}
+        </Avatar>
+        <UserInfo>
+          <UserName>{user.username || 'User'}</UserName>
+          <UserEmail>{user.email}</UserEmail>
+          <Badge $level={user.membership_level}>
+            {getLevelName(user.membership_level)}
+          </Badge>
+        </UserInfo>
+      </PageHeader>
+
+      <StatsGrid>
+        <StatCard>
+          <StatIcon $color="#2563eb">📊</StatIcon>
+          <StatValue>{strategyCount}</StatValue>
+          <StatLabel>运行中的策略</StatLabel>
+          {strategyLimit !== -1 && (
+            <StatProgress>
+              <StatProgressBar 
+                $percent={Math.min((strategyCount / strategyLimit) * 100, 100)} 
+                $color="#2563eb" 
               />
-            </InfoValue>
-          </InfoRow>
+            </StatProgress>
+          )}
+        </StatCard>
+        
+        <StatCard>
+          <StatIcon $color="#059669">💳</StatIcon>
+          <StatValue>{accountCount}</StatValue>
+          <StatLabel>MT5 账户</StatLabel>
+          {accountLimit !== -1 && (
+            <StatProgress>
+              <StatProgressBar 
+                $percent={Math.min((accountCount / accountLimit) * 100, 100)} 
+                $color="#059669" 
+              />
+            </StatProgress>
+          )}
+        </StatCard>
+        
+        <StatCard>
+          <StatIcon $color="#7c3aed">⏰</StatIcon>
+          <StatValue>
+            {user.membership_expire_at 
+              ? Math.max(0, Math.ceil((new Date(user.membership_expire_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+              : '∞'}
+          </StatValue>
+          <StatLabel>会员剩余天数</StatLabel>
+        </StatCard>
+        
+        <StatCard>
+          <StatIcon $color="#f59e0b">✨</StatIcon>
+          <StatValue>{subscription?.limits?.features?.length || 0}</StatValue>
+          <StatLabel>可用功能</StatLabel>
+        </StatCard>
+      </StatsGrid>
+
+      <ContentGrid>
+        <Card>
+          <CardHeader>
+            <CardTitle><span>👤</span> 个人资料</CardTitle>
+          </CardHeader>
           
-          <InfoRow>
-            <InfoLabel>{t('user.membership')}</InfoLabel>
-            <InfoValue>
+          <FormGroup>
+            <Label>邮箱地址</Label>
+            <Input type="text" value={user.email} disabled style={{ opacity: 0.6 }} />
+          </FormGroup>
+          
+          <FormGroup>
+            <Label>用户名</Label>
+            <Input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="输入用户名"
+            />
+          </FormGroup>
+          
+          <FormGroup>
+            <Label>会员等级</Label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <Badge $level={user.membership_level}>
-                {user.membership_level.toUpperCase()}
+                {getLevelName(user.membership_level)}
               </Badge>
-            </InfoValue>
-          </InfoRow>
-          
-          <InfoRow>
-            <InfoLabel>{t('user.expires')}</InfoLabel>
-            <InfoValue>
-              {user.membership_expire_at 
-                ? new Date(user.membership_expire_at).toLocaleDateString()
-                : 'N/A'}
-            </InfoValue>
-          </InfoRow>
-          
-          <InfoRow>
-            <InfoLabel>{t('user.accounts')}</InfoLabel>
-            <InfoValue>{user.stats?.accounts_count || 0}</InfoValue>
-          </InfoRow>
-          
-          <InfoRow>
-            <InfoLabel>{t('user.strategies')}</InfoLabel>
-            <InfoValue>{user.stats?.strategies_count || 0}</InfoValue>
-          </InfoRow>
-          
-          {subscription?.limits && (
-            <>
-              <InfoRow>
-                <InfoLabel>{t('user.strategyLimit')}</InfoLabel>
-                <InfoValue>
-                  {user.stats?.strategies_count || 0} / {subscription.limits.strategies === -1 ? 'Unlimited' : subscription.limits.strategies}
-                </InfoValue>
-              </InfoRow>
-              
-              <InfoRow>
-                <InfoLabel>{t('user.accountLimit')}</InfoLabel>
-                <InfoValue>
-                  {user.stats?.accounts_count || 0} / {subscription.limits.accounts === -1 ? 'Unlimited' : subscription.limits.accounts}
-                </InfoValue>
-              </InfoRow>
-              
-              {subscription.limits.features && (
-                <InfoRow>
-                  <InfoLabel>{t('user.features')}</InfoLabel>
-                  <InfoValue>
-                    {subscription.limits.features.map((feature: string, index: number) => (
-                      <span key={index} style={{ display: 'inline-block', marginRight: '8px' }}>
-                        ✓ {feature}
-                      </span>
-                    ))}
-                  </InfoValue>
-                </InfoRow>
+              {user.membership_expire_at && (
+                <span style={{ color: '#9ca3af', fontSize: 13 }}>
+                  到期: {new Date(user.membership_expire_at).toLocaleDateString()}
+                </span>
               )}
-            </>
-          )}
-          
-          {user.membership_level !== 'enterprise' && (
-            <InfoRow>
-              <InfoLabel></InfoLabel>
-              <InfoValue>
-                <Button
-                  $variant="primary"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                  onClick={() => {
-                    window.location.href = '/pricing'
-                  }}
-                >
-                  {t('user.upgradeMembership')}
-                </Button>
-              </InfoValue>
-            </InfoRow>
-          )}
+            </div>
+          </FormGroup>
           
           {profileError && <ErrorMessage>{profileError}</ErrorMessage>}
-          {profileSuccess && <SuccessMessage>{t('user.profileUpdated')}</SuccessMessage>}
+          {profileSuccess && <SuccessMessage>资料更新成功！</SuccessMessage>}
           
           <ButtonGroup>
             <Button onClick={handleUpdateProfile} disabled={profileLoading}>
-              {profileLoading ? 'Saving...' : t('user.saveChanges')}
+              {profileLoading ? '保存中...' : '保存修改'}
             </Button>
           </ButtonGroup>
+          
+          {user.membership_level !== 'enterprise' && (
+            <UpgradeBanner>
+              <UpgradeText>
+                升级会员获取更多功能
+                <span>解锁无限策略、更多账户和高级功能</span>
+              </UpgradeText>
+              <Button 
+                $variant="primary" 
+                style={{ padding: '10px 20px' }}
+                onClick={() => navigate('/pricing')}
+              >
+                立即升级
+              </Button>
+            </UpgradeBanner>
+          )}
         </Card>
         
         <Card>
-          <CardTitle>🔐 {t('user.changePassword')}</CardTitle>
+          <CardHeader>
+            <CardTitle><span>🔐</span> 修改密码</CardTitle>
+          </CardHeader>
           
           <FormGroup>
-            <Label>{t('user.currentPassword')}</Label>
+            <Label>当前密码</Label>
             <Input
               type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="输入当前密码"
             />
           </FormGroup>
           
           <FormGroup>
-            <Label>{t('user.newPassword')}</Label>
+            <Label>新密码</Label>
             <Input
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="输入新密码"
             />
           </FormGroup>
           
           <FormGroup>
-            <Label>{t('user.confirmPassword')}</Label>
+            <Label>确认新密码</Label>
             <Input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="再次输入新密码"
             />
           </FormGroup>
           
           {passwordError && <ErrorMessage>{passwordError}</ErrorMessage>}
-          {passwordSuccess && <SuccessMessage>{t('user.passwordChanged')}</SuccessMessage>}
+          {passwordSuccess && <SuccessMessage>密码修改成功！</SuccessMessage>}
           
           <ButtonGroup>
             <Button onClick={handleChangePassword} disabled={passwordLoading}>
-              {passwordLoading ? 'Changing...' : t('user.change')}
+              {passwordLoading ? '修改中...' : '修改密码'}
             </Button>
           </ButtonGroup>
         </Card>
-        
-        <Card style={{ gridColumn: '1 / -1' }}>
-          <CardTitle>
-            💳 {t('user.accounts')}
+
+        <FullWidthCard>
+          <CardHeader>
+            <CardTitle><span>💳</span> MT5 账户管理</CardTitle>
             <Button 
-              $variant="secondary" 
-              style={{ marginLeft: 'auto', padding: '6px 12px', fontSize: '12px' }}
+              $variant="primary" 
               onClick={() => setShowAddAccount(true)}
+              style={{ padding: '10px 20px' }}
             >
-              + {t('user.addAccount')}
+              + 添加账户
             </Button>
-          </CardTitle>
+          </CardHeader>
           
           {mt5Accounts.length === 0 ? (
-            <div style={{ color: '#9ca3af', textAlign: 'center', padding: '40px' }}>
-              {t('user.noAccounts')}
-            </div>
+            <EmptyState>
+              <div>💳</div>
+              <p>还没有添加MT5账户</p>
+              <Button $variant="primary" onClick={() => setShowAddAccount(true)}>
+                添加第一个账户
+              </Button>
+            </EmptyState>
           ) : (
-            mt5Accounts.map((account) => (
-              <AccountCard key={account.id}>
-                <AccountInfo>
-                  <AccountName>
-                    {account.account_name}
-                    {account.is_primary && (
-                      <span style={{ marginLeft: 8, fontSize: 11, color: '#22c55e' }}>PRIMARY</span>
-                    )}
-                  </AccountName>
-                  <AccountDetail>
-                    {account.login}@{account.server}
-                  </AccountDetail>
-                </AccountInfo>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <StatusBadge $status={account.connection_status}>
-                    {account.connection_status}
-                  </StatusBadge>
-                  <Button
-                    $variant="secondary"
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                    onClick={() => handleTestConnection(account.id)}
-                  >
-                    Test
-                  </Button>
-                  <Button
-                    $variant="danger"
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                    onClick={() => handleDeleteAccount(account.id)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </AccountCard>
-            ))
+            <AccountList>
+              {mt5Accounts.map((account) => (
+                <AccountCard key={account.id}>
+                  <AccountInfo>
+                    <AccountName>
+                      {account.account_name}
+                      {account.is_primary && <PrimaryTag>主账户</PrimaryTag>}
+                    </AccountName>
+                    <AccountDetail>
+                      {account.login}@{account.server}
+                    </AccountDetail>
+                  </AccountInfo>
+                  <AccountActions>
+                    <StatusBadge $status={account.connection_status}>
+                      {account.connection_status === 'connected' ? '已连接' : '未连接'}
+                    </StatusBadge>
+                    <ActionButton onClick={() => handleTestConnection(account.id)}>
+                      测试连接
+                    </ActionButton>
+                    <DeleteButton onClick={() => handleDeleteAccount(account.id)}>
+                      删除
+                    </DeleteButton>
+                  </AccountActions>
+                </AccountCard>
+              ))}
+            </AccountList>
           )}
-        </Card>
-      </Grid>
+        </FullWidthCard>
+      </ContentGrid>
       
       {showAddAccount && (
         <Modal onClick={() => setShowAddAccount(false)}>
           <ModalContent onClick={(e) => e.stopPropagation()}>
-            <ModalTitle>{t('user.addAccount')}</ModalTitle>
+            <ModalTitle><span>💳</span> 添加 MT5 账户</ModalTitle>
             
             <FormGroup>
-              <Label>{t('user.username')}</Label>
+              <Label>账户名称</Label>
               <Input
                 type="text"
-                placeholder="My Trading Account"
+                placeholder="例如: 我的交易账户"
                 value={newAccount.account_name}
                 onChange={(e) => setNewAccount({ ...newAccount, account_name: e.target.value })}
               />
             </FormGroup>
             
             <FormGroup>
-              <Label>Login</Label>
+              <Label>MT5 登录号</Label>
               <Input
                 type="text"
-                placeholder="12345678"
+                placeholder="例如: 12345678"
                 value={newAccount.login}
                 onChange={(e) => setNewAccount({ ...newAccount, login: e.target.value })}
               />
             </FormGroup>
             
             <FormGroup>
-              <Label>{t('user.currentPassword')}</Label>
+              <Label>密码</Label>
               <Input
                 type="password"
-                placeholder="Password"
+                placeholder="MT5账户密码"
                 value={newAccount.password}
                 onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
               />
             </FormGroup>
             
             <FormGroup>
-              <Label>Server</Label>
+              <Label>服务器</Label>
               <Input
                 type="text"
-                placeholder="MetaQuotes-Demo"
+                placeholder="例如: MetaQuotes-Demo"
                 value={newAccount.server}
                 onChange={(e) => setNewAccount({ ...newAccount, server: e.target.value })}
               />
@@ -599,10 +886,10 @@ const UserCenter: React.FC = () => {
             
             <ButtonGroup>
               <Button $variant="secondary" onClick={() => setShowAddAccount(false)}>
-                Cancel
+                取消
               </Button>
               <Button onClick={handleAddAccount} disabled={accountLoading}>
-                {accountLoading ? 'Adding...' : 'Add Account'}
+                {accountLoading ? '添加中...' : '添加账户'}
               </Button>
             </ButtonGroup>
           </ModalContent>

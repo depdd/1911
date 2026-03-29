@@ -62,8 +62,9 @@ const FeatureUnderDevelopment = styled.div`
 
 const MarketData: React.FC = () => {
   // 传递给K线图表的默认参数
-  const defaultSymbol = 'EURUSD'
-  const defaultTimeframe = 'H1'
+  // 周末只有加密货币有数据，默认使用BTCUSD
+  const defaultSymbol = 'BTCUSD'
+  const defaultTimeframe = 'M1'
 
   return (
     <MarketDataContainer>

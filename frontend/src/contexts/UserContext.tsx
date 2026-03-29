@@ -21,9 +21,22 @@ interface UserContextType {
   startStrategy: (id: number) => Promise<{ success: boolean; error?: string }>
   stopStrategy: (id: number) => Promise<{ success: boolean; error?: string }>
   deleteStrategy: (id: number) => Promise<{ success: boolean; error?: string }>
+  sendVerificationCode: (email: string, type?: 'auto' | 'register' | 'login') => Promise<{ success: boolean; error?: string; expire_in?: number; is_registered?: boolean; code_type?: 'register' | 'login' }>
+  loginWithCode: (email: string, code: string) => Promise<{ success: boolean; error?: string; is_new_user?: boolean; email?: string }>
+  registerWithCode: (email: string, username: string, password: string, code: string) => Promise<{ success: boolean; error?: string }>
 }
 
+const USER_LOGOUT_EVENT = 'user_logout'
+
 const UserContext = createContext<UserContextType | undefined>(undefined)
+
+export const useLogoutListener = (callback: () => void) => {
+  useEffect(() => {
+    const handleLogout = () => callback()
+    window.addEventListener(USER_LOGOUT_EVENT, handleLogout)
+    return () => window.removeEventListener(USER_LOGOUT_EVENT, handleLogout)
+  }, [callback])
+}
 
 export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
@@ -36,13 +49,16 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const initAuth = async () => {
+      console.log('UserContext - initAuth called')
       if (userAuthService.isAuthenticated()) {
         const storedUser = userAuthService.getStoredUser()
+        console.log('UserContext - storedUser:', storedUser)
         if (storedUser) {
           setUser(storedUser)
         }
         
         const currentUser = await userAuthService.getCurrentUser()
+        console.log('UserContext - currentUser:', currentUser)
         if (currentUser) {
           setUser(currentUser)
         } else {
@@ -57,7 +73,9 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [])
 
   useEffect(() => {
+    console.log('UserContext - user changed:', user)
     if (user) {
+      console.log('UserContext - Refreshing accounts, strategies, subscription')
       refreshAccounts()
       refreshStrategies()
       refreshSubscription()
@@ -85,6 +103,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(null)
     setMT5Accounts([])
     setStrategies([])
+    window.dispatchEvent(new CustomEvent(USER_LOGOUT_EVENT))
   }
 
   const refreshUser = async () => {
@@ -95,7 +114,9 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   const refreshAccounts = async () => {
+    console.log('refreshAccounts called')
     const accounts = await userAuthService.getMT5Accounts()
+    console.log('refreshAccounts got accounts:', accounts)
     setMT5Accounts(accounts)
   }
 
@@ -110,9 +131,13 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   const addMT5Account = async (data: any) => {
+    console.log('UserContext - addMT5Account called with:', data)
     const result = await userAuthService.addMT5Account(data)
+    console.log('UserContext - addMT5Account result:', result)
     if (result.success) {
+      console.log('UserContext - Calling refreshAccounts')
       await refreshAccounts()
+      console.log('UserContext - refreshAccounts completed')
     }
     return result
   }
@@ -127,9 +152,6 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const createStrategy = async (data: any) => {
     const result = await userAuthService.createUserStrategy(data)
-    if (result.success) {
-      await refreshStrategies()
-    }
     return result
   }
 
@@ -157,6 +179,26 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return result
   }
 
+  const sendVerificationCode = async (email: string, type: 'auto' | 'register' | 'login' = 'auto') => {
+    return await userAuthService.sendVerificationCode(email, type)
+  }
+
+  const loginWithCode = async (email: string, code: string) => {
+    const result = await userAuthService.loginWithCode(email, code)
+    if (result.success && result.data && !result.is_new_user) {
+      setUser(result.data.user)
+    }
+    return result
+  }
+
+  const registerWithCode = async (email: string, username: string, password: string, code: string) => {
+    const result = await userAuthService.registerWithCode(email, username, password, code)
+    if (result.success && result.data) {
+      setUser(result.data.user)
+    }
+    return result
+  }
+
   return (
     <UserContext.Provider
       value={{
@@ -179,6 +221,9 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         startStrategy,
         stopStrategy,
         deleteStrategy,
+        sendVerificationCode,
+        loginWithCode,
+        registerWithCode,
       }}
     >
       {children}

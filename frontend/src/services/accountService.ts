@@ -366,7 +366,7 @@ export class AccountService {
    */
   async closePosition(ticket: string): Promise<ApiResponse> {
     try {
-      const response = await apiClient.post(`/positions/${ticket}/close`)
+      const response = await apiClient.post(`/api/positions/${ticket}/close`)
       console.log('平仓响应:', response.data)
       
       return {
@@ -388,7 +388,7 @@ export class AccountService {
    */
   async closeAllPositions(): Promise<ApiResponse> {
     try {
-      const response = await apiClient.post('/positions/close_all')
+      const response = await apiClient.post('/api/positions/close_all')
       console.log('全部平仓响应:', response.data)
       
       return {

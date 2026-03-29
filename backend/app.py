@@ -1,7 +1,7 @@
 import asyncio
 import json
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, g
 from flask_cors import CORS
 from loguru import logger
 import redis
@@ -23,6 +23,7 @@ from api.user_strategies import init_user_strategies_blueprint
 from api.payment import init_payment_blueprint
 from api.legal import init_legal_blueprint
 from api.risk import init_risk_blueprint
+from api.admin import init_admin_blueprint
 
 # 配置和初始化
 config = get_config()
@@ -62,7 +63,7 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(settings_bp)
 
 # 注册用户系统蓝图
-auth_bp = init_auth_blueprint(lambda: db_manager.get_session())
+auth_bp = init_auth_blueprint(lambda: db_manager.get_session(), redis_client)
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
 
 accounts_bp = init_accounts_blueprint(lambda: db_manager.get_session())
@@ -79,6 +80,31 @@ app.register_blueprint(legal_bp, url_prefix='/api/legal')
 
 risk_bp = init_risk_blueprint(lambda: db_manager.get_session())
 app.register_blueprint(risk_bp, url_prefix='/api/risk')
+
+admin_bp = init_admin_blueprint(lambda: db_manager.get_session())
+app.register_blueprint(admin_bp, url_prefix='/api/admin')
+
+# 使用Flask的g对象管理数据库会话
+def get_db_session():
+    """获取当前请求的数据库会话"""
+    if 'db_session' not in g:
+        g.db_session = db_manager.get_session()
+    return g.db_session
+
+# 更新蓝图使用新的get_db_session
+app.view_functions['auth.login'].__globals__['get_db_session'] = get_db_session
+app.view_functions['auth.register'].__globals__['get_db_session'] = get_db_session
+
+# 确保每个请求结束后关闭数据库会话
+@app.teardown_request
+def shutdown_session(exception=None):
+    """请求结束后关闭数据库会话"""
+    session = g.pop('db_session', None)
+    if session:
+        try:
+            session.close()
+        except Exception as e:
+            logger.error(f"关闭数据库会话失败: {e}")
 
 @app.route('/')
 def index():
@@ -241,11 +267,31 @@ def get_account_info():
 def get_account_summary():
     """获取账户摘要统计"""
     try:
+        if not mt5_client.connected:
+            return jsonify({
+                'balance': 0,
+                'equity': 0,
+                'margin': 0,
+                'free_margin': 0,
+                'margin_level': 0,
+                'total_positions': 0,
+                'total_profit': 0,
+                'currency': 'USD'
+            })
+        
         account_info = asyncio.run(mt5_client.get_account_info())
         if not account_info:
-            return jsonify({'error': 'Failed to get account info'}), 500
+            return jsonify({
+                'balance': 0,
+                'equity': 0,
+                'margin': 0,
+                'free_margin': 0,
+                'margin_level': 0,
+                'total_positions': 0,
+                'total_profit': 0,
+                'currency': 'USD'
+            })
         
-        # 计算一些基本统计信息
         positions = asyncio.run(mt5_client.get_positions())
         total_profit = sum(pos['profit'] for pos in positions)
         
@@ -264,13 +310,25 @@ def get_account_summary():
         
     except Exception as e:
         logger.error(f"获取账户摘要失败: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'balance': 0,
+            'equity': 0,
+            'margin': 0,
+            'free_margin': 0,
+            'margin_level': 0,
+            'total_positions': 0,
+            'total_profit': 0,
+            'currency': 'USD'
+        })
 
 # 持仓管理API
 @app.route('/api/positions')
 def get_positions():
     """获取当前持仓"""
     try:
+        if not mt5_client.connected:
+            return jsonify({'positions': []})
+        
         # 获取当前连接的账户
         account_login = redis_client.get('current_account_login')
         logger.info(f"获取持仓信息: {account_login}")
@@ -303,17 +361,7 @@ def get_positions():
         
     except Exception as e:
         logger.error(f"获取持仓失败: {e}")
-        # 出错时尝试返回缓存数据
-        cached_data = redis_client.get('current_positions')
-        if cached_data:
-            try:
-                cached = json.loads(cached_data)
-                logger.warning("返回缓存的持仓数据")
-                return jsonify({'positions': cached['positions'], 'from_cache': True})
-            except:
-                pass
-        
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'positions': []})
 
 @app.route('/api/positions/<ticket>/close', methods=['POST'])
 def close_position(ticket):
@@ -632,56 +680,52 @@ def run_websocket_server():
 def start_data_updater():
     """启动数据更新器"""
     def update_data():
+        logger.info("数据更新器线程启动")
         while True:
             try:
-                # 如果MT5已连接，更新数据
+                logger.debug(f"数据更新器检查: mt5_client.connected={mt5_client.connected}")
                 if mt5_client.connected:
-                    # 更新账户信息
                     account_info = asyncio.run(mt5_client.get_account_info())
                     if account_info:
                         account_info['last_update'] = datetime.now().timestamp()
                         redis_client.setex('current_account_info', 300, json.dumps(account_info))
+                        logger.debug(f"更新账户信息: equity={account_info.get('equity')}")
                     
-                    # 更新持仓信息
                     positions = asyncio.run(mt5_client.get_positions())
                     if positions:
                         redis_client.setex('current_positions', 60, json.dumps({
                             'positions': positions,
                             'last_update': datetime.now().timestamp()
                         }))
+                        logger.debug(f"更新持仓: {len(positions)}个")
                     
-                    # 更新主要货币对和加密货币的tick数据
                     symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']
                     for symbol in symbols:
                         try:
                             tick_data = asyncio.run(mt5_client.get_tick_data(symbol))
                             if tick_data:
-                                # 调整BTCUSD的时间戳，使其与其他品种保持一致
                                 if symbol == 'BTCUSD' and 'time' in tick_data:
-                                    # 获取当前时间
                                     current_time = datetime.now().timestamp()
-                                    # 如果BTCUSD的时间戳与当前时间相差超过3600秒（1小时），使用当前时间
                                     if abs(tick_data['time'] - current_time) > 3600:
                                         tick_data['time'] = int(current_time)
                                 
                                 redis_client.setex(f'tick:{symbol}', 60, json.dumps(tick_data))
-                                logger.info(f"成功更新{symbol}的tick数据: {tick_data}")
-                            else:
-                                logger.warning(f"无法获取{symbol}的tick数据")
                         except Exception as e:
                             logger.error(f"更新{symbol}的tick数据失败: {e}")
+                else:
+                    logger.debug("MT5未连接，跳过数据更新")
                 
-                # 每5秒更新一次
                 import time
-                time.sleep(5)
+                time.sleep(0.5)
                 
             except Exception as e:
                 logger.error(f"数据更新器异常: {e}")
                 import time
-                time.sleep(10)
+                time.sleep(1)
     
     thread = threading.Thread(target=update_data, daemon=True)
     thread.start()
+    logger.info("数据更新器线程已启动")
 
 if __name__ == '__main__':
     try:

@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import styled from 'styled-components'
 import { useNavigate } from 'react-router-dom'
+import { useUser } from '../../contexts/UserContext'
 
 const Container = styled.div`
   min-height: 100vh;
@@ -83,12 +84,19 @@ const Button = styled.button<{ $primary?: boolean }>`
 
 const MT5SetupGuide: React.FC = () => {
   const navigate = useNavigate()
+  const { mt5Accounts } = useUser()
+
+  useEffect(() => {
+    console.log('MT5SetupGuide - mt5Accounts:', mt5Accounts)
+  }, [mt5Accounts])
 
   const handleAddAccount = () => {
+    console.log('MT5SetupGuide - Navigate to user-center')
     navigate('/user-center')
   }
 
   const handleSkip = () => {
+    console.log('MT5SetupGuide - Navigate to dashboard')
     navigate('/dashboard')
   }
 

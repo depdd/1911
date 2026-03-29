@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Typography, Card, Row, Col, Form, Select, InputNumber, Input, Button, message, Spin, Table, Tag, DatePicker, Space } from 'antd'
+import { Typography, Card, Row, Col, Form, Select, InputNumber, Input, Button, Spin, Table, Tag, DatePicker, Space, App } from 'antd'
 import dayjs from 'dayjs'
 import styled from 'styled-components'
 
-import { useAuth } from '../../contexts/AuthContext'
 import { useUser } from '../../contexts/UserContext'
 import { theme } from '../../styles/theme'
 import { tradingService } from '../../services/tradingService'
@@ -82,8 +81,8 @@ const PriceDisplay = styled.div`
 `
 
 const TradingPanel: React.FC = () => {
-  const { account } = useAuth()
   const { mt5Accounts } = useUser()
+  const { message } = App.useApp()
   const [form] = Form.useForm()
   const [symbols, setSymbols] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -98,68 +97,35 @@ const TradingPanel: React.FC = () => {
   
   const lastPriceRef = useRef<number | null>(null)
   
-  if (!account || mt5Accounts.length === 0) {
-    return (
-      <Container>
-        <StyledCard>
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '60px 40px',
-            color: theme.colors.textSecondary 
-          }}>
-            <div style={{ fontSize: '64px', marginBottom: '24px' }}>🔗</div>
-            <Title level={3} style={{ color: theme.colors.text, marginBottom: '16px' }}>
-              连接您的MT5账户
-            </Title>
-            <p style={{ color: theme.colors.textSecondary, fontSize: '16px', marginBottom: '24px' }}>
-              要使用交易功能，请先连接您的MetaTrader 5账户。
-            </p>
-            <Button 
-              type="primary" 
-              size="large"
-              onClick={() => window.location.href = '/user-center'}
-              style={{ background: theme.colors.primary, borderColor: theme.colors.primary }}
-            >
-              前往添加MT5账户
-            </Button>
-          </div>
-        </StyledCard>
-      </Container>
-    )
-  }
-  
-  // 根据品种获取价格精度
+  useEffect(() => {
+    console.log('TradingPanel - mt5Accounts:', mt5Accounts)
+  }, [mt5Accounts])
+
   const getPricePrecision = (symbol: string): number => {
-    // 黄金、白银等贵金属通常2位小数
     if (symbol.includes('XAU') || symbol.includes('XAG') || symbol.includes('GOLD') || symbol.includes('SILVER')) {
       return 2
     }
-    // 加密货币通常2位或更多
     if (symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('CRYPTO')) {
       return 2
     }
-    // 指数通常2位小数
     if (symbol.includes('INDEX') || symbol.includes('US30') || symbol.includes('US500') || symbol.includes('NAS100')) {
       return 2
     }
-    // 原油通常2位或3位小数
     if (symbol.includes('OIL') || symbol.includes('WTI') || symbol.includes('BRENT')) {
       return 2
     }
-    // 外汇货币对默认5位小数
     return 5
   }
 
-  // 获取交易品种列表
   useEffect(() => {
+    if (mt5Accounts.length === 0) return
+    
     const fetchSymbols = async () => {
       try {
         setLoading(true)
         const response = await tradingService.getSymbols()
         console.log('交易品种API响应:', response)
         if (response.success && response.data) {
-          // API返回的数据结构是 {data: {all_symbols: [...]}, success: true}
-          // 所以 response.data 实际上是嵌套的 data 对象
           const symbolsData = response.data.data || response.data
           setSymbols(symbolsData.all_symbols || [])
         }
@@ -172,10 +138,10 @@ const TradingPanel: React.FC = () => {
     }
 
     fetchSymbols()
-  }, [])
+  }, [mt5Accounts.length, message])
 
-  // 获取持仓数据
   const fetchPositions = async () => {
+    if (mt5Accounts.length === 0) return
     try {
       const response = await accountService.getPositions()
       if (response.success && response.data) {
@@ -186,10 +152,9 @@ const TradingPanel: React.FC = () => {
     }
   }
 
-  // 获取订单数据
   const fetchOrders = async () => {
+    if (mt5Accounts.length === 0) return
     try {
-      // 计算时间范围对应的天数
       let days = 30
       if (dateRange[0] && dateRange[1]) {
         const startDate = dayjs(dateRange[0])
@@ -201,12 +166,10 @@ const TradingPanel: React.FC = () => {
       if (response.success && response.data) {
         let filteredOrders = response.data.orders || []
         
-        // 按状态筛选
         if (orderStatusFilter !== 'all') {
           filteredOrders = filteredOrders.filter((order: any) => order.status === orderStatusFilter)
         }
         
-        // 按时间范围筛选
         if (dateRange[0] && dateRange[1]) {
           const startDate = dayjs(dateRange[0])
           const endDate = dayjs(dateRange[1]).endOf('day')
@@ -223,25 +186,22 @@ const TradingPanel: React.FC = () => {
     }
   }
 
-  // 组件加载时获取数据
   useEffect(() => {
+    if (mt5Accounts.length === 0) return
     fetchPositions()
     fetchOrders()
-  }, [])
+  }, [mt5Accounts.length])
   
-  // 监听筛选条件变化
   useEffect(() => {
+    if (mt5Accounts.length === 0) return
     fetchOrders()
-  }, [orderStatusFilter, dateRange])
+  }, [orderStatusFilter, dateRange, mt5Accounts.length])
 
-  // 处理实时价格更新
   const handleRealTimeTick = useCallback((tickData: TickData) => {
     if (tickData.symbol === form.getFieldValue('symbol')) {
-      // 更新当前价格前先保存到 ref
       lastPriceRef.current = tickData.bid
       setCurrentPrice(tickData)
       
-      // 如果用户还没有手动输入价格，自动设置价格输入框的默认值
       const currentFormPrice = form.getFieldValue('price')
       if (!currentFormPrice) {
         form.setFieldsValue({ price: tickData.bid })
@@ -249,7 +209,6 @@ const TradingPanel: React.FC = () => {
     }
   }, [form])
 
-  // 订阅市场数据
   useEffect(() => {
     const unsubTick = marketService.onTick(handleRealTimeTick)
     
@@ -258,12 +217,10 @@ const TradingPanel: React.FC = () => {
     }
   }, [handleRealTimeTick])
 
-  // 获取当日开盘价
   const fetchDayOpenPrice = async (symbol: string) => {
     try {
-      const response = await marketService.getHistoryKlineData(symbol, 'D', 2)
+      const response = await marketService.getHistoryKlineData(symbol, 'D1', 2)
       if (response.success && response.data && response.data.data.length >= 1) {
-        // 获取最新的日线数据的开盘价
         const latestDay = response.data.data[0]
         setDayOpenPrice(latestDay.open)
         console.log(`获取${symbol}当日开盘价: ${latestDay.open}`)
@@ -464,6 +421,36 @@ const TradingPanel: React.FC = () => {
       key: 'openTime',
     },
   ]
+
+  if (mt5Accounts.length === 0) {
+    return (
+      <Container>
+        <StyledCard>
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '60px 40px',
+            color: theme.colors.textSecondary 
+          }}>
+            <div style={{ fontSize: '64px', marginBottom: '24px' }}>🔗</div>
+            <Title level={3} style={{ color: theme.colors.text, marginBottom: '16px' }}>
+              连接您的MT5账户
+            </Title>
+            <p style={{ color: theme.colors.textSecondary, fontSize: '16px', marginBottom: '24px' }}>
+              要使用交易功能，请先连接您的MetaTrader 5账户。
+            </p>
+            <Button 
+              type="primary" 
+              size="large"
+              onClick={() => window.location.href = '/user-center'}
+              style={{ background: theme.colors.primary, borderColor: theme.colors.primary }}
+            >
+              前往添加MT5账户
+            </Button>
+          </div>
+        </StyledCard>
+      </Container>
+    )
+  }
 
   return (
     <Container>

@@ -40,6 +40,32 @@ class Config:
     # CORS配置
     CORS_ORIGINS: List[str] = field(default_factory=lambda: ['http://localhost:3000', 'http://127.0.0.1:3000'])
     
+    # 邮件配置
+    SMTP_HOST: str = os.getenv('SMTP_HOST', 'smtp.qq.com')
+    SMTP_PORT: int = int(os.getenv('SMTP_PORT', '465'))
+    SMTP_USER: str = os.getenv('SMTP_USER', '')
+    SMTP_PASSWORD: str = os.getenv('SMTP_PASSWORD', '')
+    SMTP_FROM: str = os.getenv('SMTP_FROM', '')
+    SMTP_USE_SSL: bool = os.getenv('SMTP_USE_SSL', 'True').lower() == 'true'
+    
+    # 支付宝支付配置
+    ALIPAY_APP_ID: str = os.getenv('ALIPAY_APP_ID', '')
+    ALIPAY_PRIVATE_KEY: str = os.getenv('ALIPAY_PRIVATE_KEY', '')
+    ALIPAY_PUBLIC_KEY: str = os.getenv('ALIPAY_PUBLIC_KEY', '')
+    ALIPAY_NOTIFY_URL: str = os.getenv('ALIPAY_NOTIFY_URL', '')
+    ALIPAY_RETURN_URL: str = os.getenv('ALIPAY_RETURN_URL', '')
+    ALIPAY_SANDBOX: bool = os.getenv('ALIPAY_SANDBOX', 'True').lower() == 'true'
+    
+    # 微信支付配置
+    WECHAT_APP_ID: str = os.getenv('WECHAT_APP_ID', '')
+    WECHAT_MCH_ID: str = os.getenv('WECHAT_MCH_ID', '')
+    WECHAT_API_KEY: str = os.getenv('WECHAT_API_KEY', '')
+    WECHAT_API_V3_KEY: str = os.getenv('WECHAT_API_V3_KEY', '')
+    WECHAT_NOTIFY_URL: str = os.getenv('WECHAT_NOTIFY_URL', '')
+    WECHAT_CERT_PATH: str = os.getenv('WECHAT_CERT_PATH', '')
+    WECHAT_KEY_PATH: str = os.getenv('WECHAT_KEY_PATH', '')
+    WECHAT_SANDBOX: bool = os.getenv('WECHAT_SANDBOX', 'True').lower() == 'true'
+    
     @classmethod
     def get_config(cls) -> Dict[str, Any]:
         """获取所有配置项"""

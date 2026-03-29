@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import styled from 'styled-components'
 import { userAuthService } from '../../services/userAuthService'
 import { useUser } from '../../contexts/UserContext'
 import { useLanguage } from '../../contexts/LanguageContext'
+import QRCodeLib from 'qrcode'
 
 const Container = styled.div`
   padding: 24px;
@@ -257,6 +258,24 @@ const Select = styled.select`
   }
 `
 
+const QRCodeContainer = styled.div`
+  background: ${props => props.theme.colors.background};
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  margin: 20px 0;
+  
+  canvas {
+    margin: 0 auto;
+  }
+  
+  p {
+    color: ${props => props.theme.colors.textSecondary};
+    font-size: 12px;
+    margin-top: 12px;
+  }
+`
+
 const QRCode = styled.div`
   background: ${props => props.theme.colors.background};
   border-radius: 8px;
@@ -307,9 +326,17 @@ const PricingPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState('alipay')
   const [paymentLoading, setPaymentLoading] = useState(false)
   const [currentOrder, setCurrentOrder] = useState<any>(null)
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('')
+  const [paymentStatus, setPaymentStatus] = useState<string>('pending')
+  const statusCheckRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     loadData()
+    return () => {
+      if (statusCheckRef.current) {
+        clearInterval(statusCheckRef.current)
+      }
+    }
   }, [])
 
   const loadData = async () => {
@@ -327,6 +354,9 @@ const PricingPage: React.FC = () => {
     
     setSelectedPlan(plan)
     setShowPaymentModal(true)
+    setCurrentOrder(null)
+    setQrCodeUrl('')
+    setPaymentStatus('pending')
   }
 
   const handleCreateOrder = async () => {
@@ -337,9 +367,51 @@ const PricingPage: React.FC = () => {
     
     if (result.success && result.data) {
       setCurrentOrder(result.data)
+      
+      const paymentData = result.data.payment_data
+      if (paymentData?.code_url) {
+        try {
+          const qrUrl = await QRCodeLib.toDataURL(paymentData.code_url, {
+            width: 200,
+            margin: 2,
+          })
+          setQrCodeUrl(qrUrl)
+        } catch (err) {
+          console.error('生成二维码失败:', err)
+        }
+      } else if (paymentData?.pay_url) {
+        if (paymentData.type === 'page' || paymentData.type === 'wap') {
+          window.open(paymentData.pay_url, '_blank')
+        }
+      }
+      
+      startPaymentStatusCheck(result.data.order_no)
     }
     
     setPaymentLoading(false)
+  }
+
+  const startPaymentStatusCheck = (orderNo: string) => {
+    if (statusCheckRef.current) {
+      clearInterval(statusCheckRef.current)
+    }
+    
+    statusCheckRef.current = setInterval(async () => {
+      try {
+        const response = await userAuthService.checkPaymentStatus(orderNo)
+        if (response.status === 'paid') {
+          setPaymentStatus('paid')
+          if (statusCheckRef.current) {
+            clearInterval(statusCheckRef.current)
+          }
+          await refreshUser()
+          await refreshSubscription()
+          loadData()
+        }
+      } catch (err) {
+        console.error('检查支付状态失败:', err)
+      }
+    }, 3000)
   }
 
   const handleMockPayment = async () => {
@@ -351,6 +423,10 @@ const PricingPage: React.FC = () => {
     if (result.success) {
       setShowPaymentModal(false)
       setCurrentOrder(null)
+      setQrCodeUrl('')
+      if (statusCheckRef.current) {
+        clearInterval(statusCheckRef.current)
+      }
       await refreshUser()
       await refreshSubscription()
       loadData()
@@ -358,6 +434,16 @@ const PricingPage: React.FC = () => {
     }
     
     setPaymentLoading(false)
+  }
+
+  const handleCloseModal = () => {
+    if (statusCheckRef.current) {
+      clearInterval(statusCheckRef.current)
+    }
+    setShowPaymentModal(false)
+    setCurrentOrder(null)
+    setQrCodeUrl('')
+    setPaymentStatus('pending')
   }
 
   const getPlanName = (planId: string) => {
@@ -449,7 +535,7 @@ const PricingPage: React.FC = () => {
       </OrderHistory>
       
       {showPaymentModal && selectedPlan && (
-        <Modal onClick={() => !currentOrder && setShowPaymentModal(false)}>
+        <Modal onClick={() => !currentOrder && handleCloseModal()}>
           <ModalContent onClick={(e) => e.stopPropagation()}>
             <ModalTitle>
               {currentOrder ? t('pricing.completePayment') : t('pricing.upgradeTo').replace('{{plan}}', selectedPlan.name)}
@@ -463,8 +549,10 @@ const PricingPage: React.FC = () => {
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value)}
                   >
-                    <option value="alipay">{t('pricing.alipay')}</option>
-                    <option value="wechat">{t('pricing.wechatPay')}</option>
+                    <option value="alipay">支付宝 - 电脑网页支付</option>
+                    <option value="alipay_wap">支付宝 - 手机网页支付</option>
+                    <option value="wechat">微信支付 - 扫码支付</option>
+                    <option value="wechat_h5">微信支付 - H5支付</option>
                   </Select>
                 </FormGroup>
                 
@@ -504,7 +592,7 @@ const PricingPage: React.FC = () => {
                 <ButtonGroup>
                   <Button 
                     style={{ flex: 1 }} 
-                    onClick={() => setShowPaymentModal(false)}
+                    onClick={handleCloseModal}
                   >
                     {t('common.cancel')}
                   </Button>
@@ -520,44 +608,87 @@ const PricingPage: React.FC = () => {
               </>
             ) : (
               <>
-                <QRCode>
-                  <div style={{ fontSize: 48 }}>📱</div>
-                  <p>{t('pricing.scanQRCode')}</p>
-                  <p style={{ fontWeight: 600, fontSize: 14, marginTop: 8 }}>
-                    {t('pricing.order')}: {currentOrder.order_no}
-                  </p>
-                </QRCode>
-                
-                <div style={{ 
-                  background: '#f59e0b20', 
-                  borderRadius: 8, 
-                  padding: 12, 
-                  marginBottom: 16,
-                  color: '#f59e0b',
-                  fontSize: 12
-                }}>
-                  {t('pricing.demoNote')}
-                </div>
-                
-                <ButtonGroup>
-                  <Button 
-                    style={{ flex: 1 }} 
-                    onClick={() => {
-                      setShowPaymentModal(false)
-                      setCurrentOrder(null)
-                    }}
-                  >
-                    {t('common.cancel')}
-                  </Button>
-                  <Button 
-                    $primary 
-                    style={{ flex: 1 }} 
-                    onClick={handleMockPayment}
-                    disabled={paymentLoading}
-                  >
-                    {paymentLoading ? t('pricing.processing') : t('pricing.mockPayment')}
-                  </Button>
-                </ButtonGroup>
+                {paymentStatus === 'paid' ? (
+                  <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                    <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+                    <p style={{ color: '#22c55e', fontSize: 18, fontWeight: 600 }}>支付成功！</p>
+                    <p style={{ color: '#6b7280', fontSize: 14, marginTop: 8 }}>您的会员已升级</p>
+                    <Button $primary style={{ marginTop: 20 }} onClick={handleCloseModal}>
+                      完成
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {qrCodeUrl ? (
+                      <QRCodeContainer>
+                        <img src={qrCodeUrl} alt="支付二维码" style={{ width: 200, height: 200 }} />
+                        <p>{t('pricing.scanQRCode')}</p>
+                      </QRCodeContainer>
+                    ) : currentOrder.payment_data?.pay_url ? (
+                      <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                        <p style={{ color: '#6b7280', marginBottom: 12 }}>
+                          支付页面已在新窗口打开，请完成支付
+                        </p>
+                        <Button 
+                          onClick={() => window.open(currentOrder.payment_data.pay_url, '_blank')}
+                        >
+                          重新打开支付页面
+                        </Button>
+                      </div>
+                    ) : (
+                      <QRCode>
+                        <div style={{ fontSize: 48 }}>📱</div>
+                        <p>{t('pricing.scanQRCode')}</p>
+                      </QRCode>
+                    )}
+                    
+                    <div style={{ 
+                      background: '#f5f7fa', 
+                      borderRadius: 8, 
+                      padding: 12, 
+                      marginBottom: 16,
+                      textAlign: 'center'
+                    }}>
+                      <p style={{ fontWeight: 600, fontSize: 14, color: '#1f2937' }}>
+                        订单号: {currentOrder.order_no}
+                      </p>
+                      <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                        支付金额: ¥{currentOrder.amount}
+                      </p>
+                      <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 4 }}>
+                        正在等待支付...
+                      </p>
+                    </div>
+                    
+                    <div style={{ 
+                      background: '#f59e0b20', 
+                      borderRadius: 8, 
+                      padding: 12, 
+                      marginBottom: 16,
+                      color: '#f59e0b',
+                      fontSize: 12
+                    }}>
+                      {t('pricing.demoNote')}
+                    </div>
+                    
+                    <ButtonGroup>
+                      <Button 
+                        style={{ flex: 1 }} 
+                        onClick={handleCloseModal}
+                      >
+                        {t('common.cancel')}
+                      </Button>
+                      <Button 
+                        $primary 
+                        style={{ flex: 1 }} 
+                        onClick={handleMockPayment}
+                        disabled={paymentLoading}
+                      >
+                        {paymentLoading ? t('pricing.processing') : t('pricing.mockPayment')}
+                      </Button>
+                    </ButtonGroup>
+                  </>
+                )}
               </>
             )}
           </ModalContent>

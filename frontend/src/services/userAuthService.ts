@@ -1,7 +1,7 @@
 import axios from 'axios'
 import i18n from '../i18n'
 
-const apiClient = axios.create({
+export const apiClient = axios.create({
   baseURL: 'http://localhost:5000',
   timeout: 30000,
   headers: {
@@ -41,6 +41,7 @@ export interface User {
   membership_level: string
   membership_expire_at: string | null
   is_verified: boolean
+  is_admin?: boolean
   created_at: string
   stats?: {
     accounts_count: number
@@ -94,6 +95,83 @@ export interface PaymentOrder {
 }
 
 class UserAuthService {
+  async sendVerificationCode(email: string, type: 'auto' | 'register' | 'login' = 'auto'): Promise<{ 
+    success: boolean; 
+    error?: string; 
+    expire_in?: number;
+    is_registered?: boolean;
+    code_type?: 'register' | 'login';
+  }> {
+    try {
+      const response = await apiClient.post('/api/auth/send-code', {
+        email,
+        type,
+      })
+      return {
+        success: true,
+        expire_in: response.data.expire_in,
+        is_registered: response.data.is_registered,
+        code_type: response.data.code_type,
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.response?.data?.error || '发送验证码失败',
+      }
+    }
+  }
+
+  async registerWithCode(email: string, username: string, password: string, code: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await apiClient.post('/api/auth/register-with-code', {
+        email,
+        username,
+        password,
+        code,
+      })
+
+      if (response.data.token) {
+        localStorage.setItem('user_token', response.data.token)
+        localStorage.setItem('user_info', JSON.stringify(response.data.user))
+      }
+
+      return {
+        success: true,
+        data: response.data,
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.response?.data?.error || '注册失败',
+      }
+    }
+  }
+
+  async loginWithCode(email: string, code: string): Promise<{ success: boolean; data?: any; error?: string; is_new_user?: boolean }> {
+    try {
+      const response = await apiClient.post('/api/auth/login-with-code', {
+        email,
+        code,
+      })
+
+      if (response.data.token) {
+        localStorage.setItem('user_token', response.data.token)
+        localStorage.setItem('user_info', JSON.stringify(response.data.user))
+      }
+
+      return {
+        success: true,
+        data: response.data,
+        is_new_user: response.data.is_new_user,
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.response?.data?.error || '登录失败',
+      }
+    }
+  }
+
   async register(email: string, username: string, password: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const response = await apiClient.post('/api/auth/register', {
@@ -195,9 +273,12 @@ class UserAuthService {
 
   async getMT5Accounts(): Promise<MT5Account[]> {
     try {
+      console.log('getMT5Accounts called')
       const response = await apiClient.get('/api/accounts')
+      console.log('getMT5Accounts response:', response.data)
       return response.data.accounts
     } catch (error) {
+      console.error('getMT5Accounts error:', error)
       return []
     }
   }
@@ -210,12 +291,19 @@ class UserAuthService {
     is_primary?: boolean
   }): Promise<{ success: boolean; data?: MT5Account; error?: string }> {
     try {
+      console.log('userAuthService.addMT5Account called with:', data)
+      const token = localStorage.getItem('user_token')
+      console.log('Current token:', token ? 'exists' : 'NOT FOUND')
+      
       const response = await apiClient.post('/api/accounts', data)
+      console.log('addMT5Account response:', response)
       return {
         success: true,
         data: response.data.account,
       }
     } catch (error: any) {
+      console.error('addMT5Account error:', error)
+      console.error('Error response:', error.response)
       return {
         success: false,
         error: error.response?.data?.error || 'Failed to add account',
@@ -377,6 +465,11 @@ class UserAuthService {
     } catch (error) {
       return null
     }
+  }
+
+  async checkPaymentStatus(orderNo: string): Promise<{ order_no: string; status: string; amount: number; plan: string; paid_at: string | null }> {
+    const response = await apiClient.get(`/api/payment/check-status/${orderNo}`)
+    return response.data
   }
 
   isAuthenticated(): boolean {

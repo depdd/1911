@@ -3,6 +3,7 @@ from datetime import datetime
 from cryptography.fernet import Fernet
 import base64
 import hashlib
+from loguru import logger
 from models import UserMT5Account, UserStrategy, User
 from api.auth import jwt_required, check_membership_limit, log_operation, get_db_session
 
@@ -221,25 +222,76 @@ def test_connection(account_id):
     
     try:
         import MetaTrader5 as mt5
+        from app import redis_client, mt5_client
+        import asyncio
+        import json as json_module
         
         password = decrypt_password(account.password)
         
         if not mt5.initialize():
-            return jsonify({'error': 'MT5 initialization failed'}), 500
+            error_code = mt5.last_error()
+            return jsonify({'error': f'MT5 initialization failed: {error_code}'}), 500
         
-        if not mt5.login(int(account.login), password, account.server):
+        authorized = mt5.login(login=int(account.login), password=password, server=account.server)
+        if not authorized:
+            error_code = mt5.last_error()
             mt5.shutdown()
-            return jsonify({'error': 'MT5 login failed. Check your credentials.'}), 400
+            return jsonify({'error': f'MT5 login failed: {error_code}. Check your credentials.'}), 400
         
         account_info = mt5.account_info()
-        mt5.shutdown()
+        positions = mt5.positions_get()
         
         if account_info:
             account.connection_status = 'connected'
             account.last_connected_at = datetime.utcnow()
             session.commit()
             
+            try:
+                asyncio.run(mt5_client.initialize())
+                asyncio.run(mt5_client.login(account.login, password, account.server))
+                
+                redis_client.setex('mt5_connection_status', 300, 'connected')
+                redis_client.setex('current_account_login', 300, str(account.login))
+                
+                account_info_dict = {
+                    'login': account_info.login,
+                    'server': account_info.server,
+                    'balance': account_info.balance,
+                    'equity': account_info.equity,
+                    'margin': account_info.margin,
+                    'free_margin': account_info.margin_free,
+                    'margin_level': account_info.margin_level,
+                    'currency': account_info.currency,
+                    'leverage': account_info.leverage,
+                    'profit': account_info.profit,
+                    'credit': account_info.credit,
+                    'company': account_info.company,
+                    'last_update': datetime.utcnow().timestamp()
+                }
+                redis_client.setex('current_account_info', 300, json_module.dumps(account_info_dict))
+                
+                if positions:
+                    positions_data = [{
+                        'ticket': pos.ticket,
+                        'symbol': pos.symbol,
+                        'type': 'buy' if pos.type == 0 else 'sell',
+                        'volume': pos.volume,
+                        'open_price': pos.price_open,
+                        'current_price': pos.price_current,
+                        'sl': pos.sl,
+                        'tp': pos.tp,
+                        'profit': pos.profit,
+                        'swap': getattr(pos, 'swap', 0),
+                        'commission': getattr(pos, 'commission', 0),
+                        'open_time': pos.time_setup,
+                        'comment': getattr(pos, 'comment', '')
+                    } for pos in positions]
+                    redis_client.setex('current_positions', 60, json_module.dumps({'positions': positions_data}))
+            except Exception as redis_err:
+                logger.warning(f"Redis缓存更新失败: {redis_err}")
+            
             return jsonify({
+                'success': True,
                 'message': 'Connection successful',
                 'account_info': {
                     'login': account_info.login,
@@ -253,6 +305,7 @@ def test_connection(account_id):
         return jsonify({'error': 'Failed to get account info'}), 500
         
     except Exception as e:
+        logger.error(f"测试连接失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 @accounts_bp.route('/<int:account_id>/set-primary', methods=['POST'])

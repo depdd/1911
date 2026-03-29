@@ -10,7 +10,6 @@ import {
 } from '@ant-design/icons'
 import styled from 'styled-components'
 
-import { useAuth } from '../../contexts/AuthContext'
 import { useUser } from '../../contexts/UserContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -69,22 +68,62 @@ const PositionsCard = styled(Card)<{ $border: string; $bgColor: string }>`
 `
 
 const Dashboard: React.FC = () => {
-  const { account, updateAccount } = useAuth()
-  const { mt5Accounts } = useUser()
-  useWebSocket()
+  const { mt5Accounts, user } = useUser()
+  const { isConnected, messages, subscribe, unsubscribe } = useWebSocket()
   const { theme } = useTheme()
   const { t } = useLanguage()
   const [positions, setPositions] = useState<Position[]>([])
-  
-  const accountRef = useRef(account)
-  
+  const [accountData, setAccountData] = useState<Account | null>(null)
+
   useEffect(() => {
-    accountRef.current = account
-  }, [account])
+    console.log('Dashboard - mt5Accounts:', mt5Accounts)
+    console.log('Dashboard - user:', user)
+  }, [mt5Accounts, user])
+
+  useEffect(() => {
+    if (isConnected && mt5Accounts.length > 0) {
+      console.log('Dashboard - WebSocket已连接，准备订阅账户和持仓频道')
+      subscribe('account')
+      subscribe('positions')
+      console.log('Dashboard - 已订阅账户和持仓更新')
+    } else {
+      console.log('Dashboard - 等待连接:', { isConnected, mt5AccountsCount: mt5Accounts.length })
+    }
+    return () => {
+      if (isConnected) {
+        unsubscribe('account')
+        unsubscribe('positions')
+      }
+    }
+  }, [isConnected, mt5Accounts, subscribe, unsubscribe])
+
+  useEffect(() => {
+    const latestMessage = messages[messages.length - 1]
+    if (!latestMessage) return
+
+    if (latestMessage.type === 'account_update') {
+      console.log('Dashboard - 收到账户更新:', latestMessage.data)
+      if (latestMessage.data) {
+        setAccountData({
+          balance: latestMessage.data.balance || 0,
+          equity: latestMessage.data.equity || 0,
+          margin: latestMessage.data.margin || 0,
+          freeMargin: latestMessage.data.free_margin || 0,
+          marginLevel: latestMessage.data.margin_level || 0,
+        } as Account)
+      }
+    }
+
+    if (latestMessage.type === 'position_update') {
+      console.log('Dashboard - 收到持仓更新:', latestMessage.data)
+      if (latestMessage.data?.positions) {
+        setPositions(latestMessage.data.positions)
+      }
+    }
+  }, [messages])
 
   const loadAccountData = useCallback(async () => {
-    const currentAccount = accountRef.current
-    if (!currentAccount) return
+    if (mt5Accounts.length === 0) return
 
     try {
       const positionsResponse = await accountService.getPositions()
@@ -93,26 +132,24 @@ const Dashboard: React.FC = () => {
       
       const summaryResponse = await accountService.getAccountSummary()
 
-      if (summaryResponse.success) {
-        const updatedAccount: Account = {
-          ...currentAccount,
-          balance: summaryResponse.data?.balance || 0,
-          equity: summaryResponse.data?.equity || 0,
-          margin: summaryResponse.data?.margin || 0,
-          freeMargin: summaryResponse.data?.freeMargin || 0,
-          marginLevel: summaryResponse.data?.marginLevel || 0,
-        }
-        updateAccount(updatedAccount)
+      if (summaryResponse.success && summaryResponse.data) {
+        setAccountData({
+          balance: summaryResponse.data.balance || 0,
+          equity: summaryResponse.data.equity || 0,
+          margin: summaryResponse.data.margin || 0,
+          freeMargin: summaryResponse.data.freeMargin || 0,
+          marginLevel: summaryResponse.data.marginLevel || 0,
+        } as Account)
       }
     } catch (error) {
       console.error('Failed to load account data:', error)
     }
-  }, [updateAccount])
+  }, [mt5Accounts])
 
   const processingTimerRef = useRef<number | null>(null)
   
   useEffect(() => {
-    if (account) {
+    if (mt5Accounts.length > 0) {
       loadAccountData()
     }
     
@@ -121,7 +158,7 @@ const Dashboard: React.FC = () => {
         window.clearTimeout(processingTimerRef.current)
       }
     }
-  }, [account, loadAccountData])
+  }, [mt5Accounts, loadAccountData])
 
   const formatCurrency = (value: number, currency: string = 'USD') => {
     return new Intl.NumberFormat('zh-CN', {
@@ -183,7 +220,7 @@ const Dashboard: React.FC = () => {
       key: 'profit',
       render: (profit: number) => (
         <Text strong style={{ color: getProfitColor(profit || 0) }}>
-          {(profit || 0) >= 0 ? '+' : ''}{formatCurrency(profit || 0, account?.currency)}
+          {(profit || 0) >= 0 ? '+' : ''}{formatCurrency(profit || 0, accountData?.currency)}
         </Text>
       ),
     },
@@ -192,7 +229,7 @@ const Dashboard: React.FC = () => {
   const totalProfit = positions.reduce((sum, pos) => sum + (pos.profit || 0), 0)
   const totalVolume = positions.reduce((sum, pos) => sum + (pos.volume || 0), 0)
 
-  if (!account || mt5Accounts.length === 0) {
+  if (mt5Accounts.length === 0) {
     return (
       <DashboardContainer>
         <DashboardHeader>
@@ -250,11 +287,11 @@ const Dashboard: React.FC = () => {
           <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
               title={t('dashboard.balance')}
-              value={account?.balance || 0}
+              value={accountData?.balance || 0}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
               prefix={<DollarOutlined style={{ color: theme.colors.primary }} />}
-              suffix={account?.currency}
+              suffix={accountData?.currency}
             />
           </StatCard>
         </Col>
@@ -262,11 +299,11 @@ const Dashboard: React.FC = () => {
           <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
               title={t('dashboard.equity')}
-              value={account?.equity || 0}
+              value={accountData?.equity || 0}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
               prefix={<RiseOutlined style={{ color: theme.colors.success }} />}
-              suffix={account?.currency}
+              suffix={accountData?.currency}
             />
           </StatCard>
         </Col>
@@ -274,11 +311,11 @@ const Dashboard: React.FC = () => {
           <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
               title={t('dashboard.freeMargin')}
-              value={account?.freeMargin || 0}
+              value={accountData?.freeMargin || 0}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
               prefix={<PieChartOutlined style={{ color: theme.colors.warning }} />}
-              suffix={account?.currency}
+              suffix={accountData?.currency}
             />
           </StatCard>
         </Col>
@@ -286,7 +323,7 @@ const Dashboard: React.FC = () => {
           <StatCard $border={theme.colors.border} $bgColor={`${theme.colors.backgroundLight}cc`}>
             <Statistic
               title={t('dashboard.marginLevel')}
-              value={account?.marginLevel || 0}
+              value={accountData?.marginLevel || 0}
               precision={2}
               valueStyle={{ color: theme.colors.text }}
               prefix={<BarChartOutlined style={{ color: theme.colors.info }} />}
@@ -332,7 +369,7 @@ const Dashboard: React.FC = () => {
                   <FallOutlined style={{ color: theme.colors.error }} />
                 )
               }
-              suffix={account?.currency}
+              suffix={accountData?.currency}
             />
           </StatCard>
         </Col>

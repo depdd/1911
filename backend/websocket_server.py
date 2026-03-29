@@ -45,15 +45,17 @@ class WebSocketMessage:
 class WebSocketServer:
     def __init__(self, redis_client: redis.Redis):
         self.redis_client = redis_client
-        self.clients: Set[websockets.WebSocketServerProtocol] = set()  # 使用集合存储活跃客户端
+        self.clients: Set[websockets.WebSocketServerProtocol] = set()
         self.subscriptions: Dict[str, Set[websockets.WebSocketServerProtocol]] = {
             'account': set(),
             'positions': set(),
             'orders': set(),
             'ticks': set(),
+            'klines': set(),
             'strategies': set(),
             'system': set()
-        }  # 使用集合存储每个频道的订阅者
+        }
+        self.client_symbol_subscriptions: Dict[websockets.WebSocketServerProtocol, Set[str]] = {}
         self.running = False
         
     async def start_server(self, host: str, port: int):
@@ -130,12 +132,12 @@ class WebSocketServer:
         except Exception as e:
             print(f"[ERROR] 客户端处理错误: {e}")
         finally:
-            # 清理客户端连接
             print(f"[DEBUG] 客户端连接关闭: {websocket.remote_address}")
             self.clients.discard(websocket)
-            # 从所有订阅中移除客户端
             for subscription_set in self.subscriptions.values():
                 subscription_set.discard(websocket)
+            if websocket in self.client_symbol_subscriptions:
+                del self.client_symbol_subscriptions[websocket]
     
     async def handle_message(self, websocket: websockets.WebSocketServerProtocol, message: str, client_id: str):
         """处理客户端消息"""
@@ -147,8 +149,7 @@ class WebSocketServer:
             logger.debug(f"收到消息: {msg_type} from {client_id}")
             print(f"[DEBUG] 处理消息类型: {msg_type}，频道: {msg_data.get('channels')}")
             
-            # 处理订阅请求
-            if msg_type == 'subscribe':
+            if msg_type == 'subscribe' or msg_type == 'resubscribe':
                 await self.handle_subscription(websocket, msg_data)
             elif msg_type == 'unsubscribe':
                 await self.handle_unsubscription(websocket, msg_data)
@@ -158,8 +159,8 @@ class WebSocketServer:
                 await self.handle_strategy_control(websocket, msg_data, 'start', client_id)
             elif msg_type == MessageType.STRATEGY_STOP.value:
                 await self.handle_strategy_control(websocket, msg_data, 'stop', client_id)
-            elif msg_type == MessageType.HEARTBEAT.value:
-                await self.send_message(websocket, MessageType.HEARTBEAT.value, {'status': 'ok'})
+            elif msg_type == MessageType.HEARTBEAT.value or msg_type == 'ping':
+                await self.send_message(websocket, 'pong', {'status': 'ok'})
             else:
                 logger.warning(f"未知消息类型: {msg_type}")
                 
@@ -172,31 +173,44 @@ class WebSocketServer:
     async def handle_subscription(self, websocket: websockets.WebSocketServerProtocol, data: Dict):
         """处理订阅请求"""
         channels = data.get('channels', [])
-        print(f"[DEBUG] 客户端订阅频道: {channels}")
+        symbol = data.get('symbol', '')
+        print(f"[DEBUG] 客户端订阅频道: {channels}, 品种: {symbol}")
         
         for channel in channels:
             if channel in self.subscriptions:
                 self.subscriptions[channel].add(websocket)
                 logger.info(f"客户端 {websocket.remote_address} 订阅频道: {channel}")
                 
-                # 立即发送当前数据
-                await self.send_current_data(websocket, channel)
+                if symbol:
+                    if websocket not in self.client_symbol_subscriptions:
+                        self.client_symbol_subscriptions[websocket] = set()
+                    self.client_symbol_subscriptions[websocket].add(symbol)
+                    print(f"[DEBUG] 客户端订阅品种: {symbol}")
+                
+                await self.send_current_data(websocket, channel, symbol)
             else:
                 logger.warning(f"未知订阅频道: {channel}")
         print(f"[DEBUG] 订阅完成，客户端订阅的频道: {[ch for ch, subs in self.subscriptions.items() if websocket in subs]}")
         
-        await self.send_message(websocket, 'subscribed', {'channels': channels})
+        await self.send_message(websocket, 'subscribed', {'channels': channels, 'symbol': symbol})
     
     async def handle_unsubscription(self, websocket: websockets.WebSocketServerProtocol, data: Dict):
         """处理取消订阅请求"""
         channels = data.get('channels', [])
+        symbol = data.get('symbol', '')
         
         for channel in channels:
             if channel in self.subscriptions:
                 self.subscriptions[channel].discard(websocket)
                 logger.info(f"客户端 {websocket.remote_address} 取消订阅频道: {channel}")
         
-        await self.send_message(websocket, 'unsubscribed', {'channels': channels})
+        if symbol and websocket in self.client_symbol_subscriptions:
+            self.client_symbol_subscriptions[websocket].discard(symbol)
+            print(f"[DEBUG] 客户端取消订阅品种: {symbol}")
+            if not self.client_symbol_subscriptions[websocket]:
+                del self.client_symbol_subscriptions[websocket]
+        
+        await self.send_message(websocket, 'unsubscribed', {'channels': channels, 'symbol': symbol})
     
     async def handle_order_request(self, websocket: websockets.WebSocketServerProtocol, data: Dict, client_id: str):
         """处理交易请求"""
@@ -239,13 +253,11 @@ class WebSocketServer:
                 'error': str(e)
             })
     
-    async def send_current_data(self, websocket: websockets.WebSocketServerProtocol, channel: str):
+    async def send_current_data(self, websocket: websockets.WebSocketServerProtocol, channel: str, symbol: str = ''):
         """发送当前数据给新订阅的客户端"""
         try:
-            # 检查Redis连接
             if not self.redis_client or not self.redis_client.ping():
                 logger.warning("Redis连接不可用，发送模拟数据")
-                # 发送模拟数据
                 if channel == 'account':
                     mock_account = {
                         'balance': 10000.0,
@@ -263,13 +275,11 @@ class WebSocketServer:
                     await self.send_message(websocket, MessageType.POSITION_UPDATE.value, mock_positions)
                 return
             
-            # 正常的Redis数据获取逻辑
             if channel == 'account':
                 account_data = self.redis_client.get('current_account_info')
                 if account_data:
                     await self.send_message(websocket, MessageType.ACCOUNT_UPDATE.value, json.loads(account_data))
                 else:
-                    # 发送模拟账户数据作为后备
                     mock_account = {
                         'balance': 10000.0,
                         'equity': 10050.0,
@@ -285,23 +295,25 @@ class WebSocketServer:
                 if positions_data:
                     await self.send_message(websocket, MessageType.POSITION_UPDATE.value, json.loads(positions_data))
                 else:
-                    # 发送空的持仓数据作为后备
                     mock_positions = {
                         'positions': []
                     }
                     await self.send_message(websocket, MessageType.POSITION_UPDATE.value, mock_positions)
             
             elif channel == 'ticks':
-                # 发送最新的tick数据
-                symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD']  # 主要货币对
-                for symbol in symbols:
+                if symbol:
                     tick_data = self.redis_client.get(f'tick:{symbol}')
                     if tick_data:
                         await self.send_message(websocket, MessageType.TICK_DATA.value, json.loads(tick_data))
+                else:
+                    symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD']
+                    for sym in symbols:
+                        tick_data = self.redis_client.get(f'tick:{sym}')
+                        if tick_data:
+                            await self.send_message(websocket, MessageType.TICK_DATA.value, json.loads(tick_data))
             
         except redis.ConnectionError:
             logger.error("Redis连接错误，无法获取数据")
-            # 发送模拟数据
             if channel == 'account':
                 mock_account = {
                     'balance': 10000.0,
@@ -412,7 +424,7 @@ class WebSocketServer:
                 await self.push_market_data()
                 
                 logger.debug("数据推送任务完成，等待下一次执行")
-                await asyncio.sleep(1)  # 每秒检查一次
+                await asyncio.sleep(0.3)
                 
             except redis.ConnectionError:
                 logger.error("Redis连接错误，将在5秒后重试")
@@ -430,9 +442,14 @@ class WebSocketServer:
                 last_update = data.get('last_update', 0)
                 current_time = datetime.now().timestamp()
                 
-                # 如果数据在5秒内更新过，则推送
+                logger.debug(f"账户数据检查: last_update={last_update}, current_time={current_time}, diff={current_time - last_update}")
+                
                 if current_time - last_update < 5:
-                    await self.broadcast_to_channel('account', MessageType.ACCOUNT_UPDATE.value, data)
+                    if 'account' in self.subscriptions and len(self.subscriptions['account']) > 0:
+                        logger.info(f"推送账户更新到 {len(self.subscriptions['account'])} 个客户端")
+                        await self.broadcast_to_channel('account', MessageType.ACCOUNT_UPDATE.value, data)
+                    else:
+                        logger.debug("没有客户端订阅账户频道")
                     
         except Exception as e:
             logger.error(f"推送账户更新异常: {e}")
@@ -446,31 +463,58 @@ class WebSocketServer:
                 last_update = data.get('last_update', 0)
                 current_time = datetime.now().timestamp()
                 
-                # 如果数据在5秒内更新过，则推送
+                logger.debug(f"持仓数据检查: last_update={last_update}, current_time={current_time}, diff={current_time - last_update}")
+                
                 if current_time - last_update < 5:
-                    await self.broadcast_to_channel('positions', MessageType.POSITION_UPDATE.value, data)
+                    if 'positions' in self.subscriptions and len(self.subscriptions['positions']) > 0:
+                        logger.info(f"推送持仓更新到 {len(self.subscriptions['positions'])} 个客户端")
+                        await self.broadcast_to_channel('positions', MessageType.POSITION_UPDATE.value, data)
+                    else:
+                        logger.debug("没有客户端订阅持仓频道")
                     
         except Exception as e:
             logger.error(f"推送持仓更新异常: {e}")
     
     async def push_market_data(self):
-        """推送行情数据"""
+        """推送行情数据 - 只推送给订阅了特定品种的客户端"""
         try:
-            # 推送主要货币对和加密货币的tick数据
-            symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']
+            symbol_clients: Dict[str, Set[websockets.WebSocketServerProtocol]] = {}
             
-            for symbol in symbols:
+            for client, symbols in self.client_symbol_subscriptions.items():
+                for sym in symbols:
+                    if sym not in symbol_clients:
+                        symbol_clients[sym] = set()
+                    symbol_clients[sym].add(client)
+            
+            for symbol, clients in symbol_clients.items():
                 tick_data = self.redis_client.get(f'tick:{symbol}')
                 if tick_data:
                     data = json.loads(tick_data)
-                    last_update = data.get('time', 0)
-                    current_time = datetime.now().timestamp()
+                    data['symbol'] = symbol
                     
-                    logger.debug(f"准备推送{symbol}的tick数据: {data}")
+                    logger.debug(f"准备推送{symbol}的tick数据到 {len(clients)} 个客户端")
                     
-                    # 只要Redis中有数据就推送（由于时间戳可能存在时区问题，不再检查更新时间）
-                    await self.broadcast_to_channel('ticks', MessageType.TICK_DATA.value, data)
-                    logger.debug(f"成功推送{symbol}的tick数据到ticks频道")
+                    message = self.create_message(MessageType.TICK_DATA.value, data)
+                    disconnected = set()
+                    
+                    for websocket in clients:
+                        try:
+                            if websocket in self.clients:
+                                await websocket.send(message)
+                        except websockets.exceptions.ConnectionClosed:
+                            disconnected.add(websocket)
+                        except Exception as e:
+                            logger.error(f"推送tick数据异常: {e}")
+                            disconnected.add(websocket)
+                    
+                    for ws in disconnected:
+                        self.clients.discard(ws)
+                        if ws in self.client_symbol_subscriptions:
+                            del self.client_symbol_subscriptions[ws]
+                        for sub_set in self.subscriptions.values():
+                            sub_set.discard(ws)
+                    
+                    logger.debug(f"成功推送{symbol}的tick数据")
                         
         except Exception as e:
             logger.error(f"推送行情数据异常: {e}")

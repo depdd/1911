@@ -132,7 +132,7 @@ export class StrategyService {
 
   async getStrategy(strategyId: string): Promise<ApiResponse<{ strategy: StrategyInstance }>> {
     try {
-      const response = await apiClient.get(`/api/strategies/${strategyId}`)
+      const response = await apiClient.get(`/api/user-strategies/${strategyId}`)
       return {
         success: true,
         data: { strategy: response.data.data }
@@ -148,7 +148,7 @@ export class StrategyService {
 
   async createStrategy(data: CreateStrategyRequest): Promise<ApiResponse<{ strategy: StrategyInstance }>> {
     try {
-      const response = await apiClient.post('/api/strategies', data)
+      const response = await apiClient.post('/api/user-strategies', data)
       return {
         success: true,
         data: { strategy: response.data.data }
@@ -164,7 +164,7 @@ export class StrategyService {
 
   async updateStrategy(strategyId: string, data: UpdateStrategyRequest): Promise<ApiResponse<{ strategy: StrategyInstance }>> {
     try {
-      const response = await apiClient.put(`/api/strategies/${strategyId}`, data)
+      const response = await apiClient.put(`/api/user-strategies/${strategyId}`, data)
       return {
         success: true,
         data: { strategy: response.data.data }
@@ -180,7 +180,7 @@ export class StrategyService {
 
   async deleteStrategy(strategyId: string): Promise<ApiResponse> {
     try {
-      const response = await apiClient.delete(`/api/strategies/${strategyId}`)
+      const response = await apiClient.delete(`/api/user-strategies/${strategyId}`)
       return {
         success: true,
         data: response.data
@@ -196,7 +196,7 @@ export class StrategyService {
 
   async startStrategy(strategyId: string): Promise<ApiResponse> {
     try {
-      const response = await apiClient.post(`/api/strategies/${strategyId}/start`)
+      const response = await apiClient.post(`/api/user-strategies/${strategyId}/start`)
       return {
         success: true,
         data: response.data
@@ -212,7 +212,7 @@ export class StrategyService {
 
   async stopStrategy(strategyId: string): Promise<ApiResponse> {
     try {
-      const response = await apiClient.post(`/api/strategies/${strategyId}/stop`)
+      const response = await apiClient.post(`/api/user-strategies/${strategyId}/stop`)
       return {
         success: true,
         data: response.data
@@ -228,7 +228,7 @@ export class StrategyService {
 
   async getPerformance(strategyId: string): Promise<ApiResponse<{ performance: any }>> {
     try {
-      const response = await apiClient.get(`/api/strategies/${strategyId}/performance`)
+      const response = await apiClient.get(`/api/user-strategies/${strategyId}/performance`)
       return {
         success: true,
         data: { performance: response.data.data }
@@ -244,12 +244,12 @@ export class StrategyService {
 
   async getStrategyLogs(strategyId: string, limit: number = 100): Promise<ApiResponse<any[]>> {
     try {
-      const response = await apiClient.get(`/api/strategies/${strategyId}/logs`, {
+      const response = await apiClient.get(`/api/user-strategies/${strategyId}/logs`, {
         params: { limit }
       })
       return {
         success: true,
-        data: response.data.data
+        data: response.data.logs
       }
     } catch (error) {
       console.error('Get strategy logs error:', error)
@@ -262,7 +262,7 @@ export class StrategyService {
 
   async clearStrategyLogs(strategyId: string): Promise<ApiResponse> {
     try {
-      const response = await apiClient.post(`/api/strategies/${strategyId}/logs/clear`)
+      const response = await apiClient.post(`/api/user-strategies/${strategyId}/logs/clear`)
       return {
         success: true,
         data: response.data

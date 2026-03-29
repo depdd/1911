@@ -13,6 +13,8 @@ import {
   DollarOutlined,
   AlertOutlined,
   KeyOutlined,
+  UserOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
@@ -125,7 +127,7 @@ const Sidebar: React.FC = () => {
   const { theme } = useTheme()
   const { t } = useLanguage()
 
-  const menuItems = [
+  const baseMenuItems = [
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
@@ -156,7 +158,7 @@ const Sidebar: React.FC = () => {
       icon: <AlertOutlined />,
       label: t('menu.alerts'),
     }] : []),
-    ...(user?.membership_level === 'pro' || user?.membership_level === 'enterprise' ? [{
+    ...(false && (user?.membership_level === 'pro' || user?.membership_level === 'enterprise') ? [{
       key: '/api-keys',
       icon: <KeyOutlined />,
       label: t('menu.apiKeys'),
@@ -167,11 +169,26 @@ const Sidebar: React.FC = () => {
       label: t('menu.pricing'),
     },
     {
+      key: '/user-center',
+      icon: <UserOutlined />,
+      label: t('menu.userCenter'),
+    },
+    {
       key: '/settings',
       icon: <SettingOutlined />,
       label: t('menu.settings'),
     },
   ]
+  
+  const adminMenuItem = {
+    key: '/admin',
+    icon: <TeamOutlined />,
+    label: '管理员平台',
+  }
+  
+  const menuItems = user?.is_admin 
+    ? [...baseMenuItems, adminMenuItem] 
+    : baseMenuItems
 
   const handleMenuClick = (key: string) => {
     navigate(key)

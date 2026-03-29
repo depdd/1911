@@ -5,6 +5,9 @@ import hashlib
 import secrets
 from models import User, UserSubscription, Payment
 from api.auth import jwt_required, log_operation, get_db_session, MEMBERSHIP_LIMITS
+from services.alipay_service import alipay_service
+from services.wechat_pay_service import wechat_pay_service
+from loguru import logger
 
 payment_bp = Blueprint('payment', __name__)
 
@@ -150,15 +153,94 @@ def create_order():
     log_operation(user.id, 'create_order', f'Created order: {order_no} for plan: {plan}')
     
     payment_data = {}
-    if payment_method == 'alipay':
+    subject = f"外汇交易平台 - {plan_info.get('zh', {}).get('name', plan)}会员"
+    body = f"订阅{plan_info.get('zh', {}).get('name', plan)}会员{plan_info['duration_months']}个月"
+    
+    try:
+        if payment_method == 'alipay':
+            result = alipay_service.create_order(
+                out_trade_no=order_no,
+                total_amount=float(plan_info['price']),
+                subject=subject,
+                body=body
+            )
+            if result['success']:
+                payment_data = {
+                    'pay_url': result['pay_url'],
+                    'type': 'page'
+                }
+            else:
+                logger.error(f"支付宝下单失败: {result.get('msg')}")
+                payment_data = {
+                    'error': result.get('msg', '下单失败'),
+                    'mock': True,
+                    'pay_url': f'https://openapi.alipay.com/gateway.do?order={order_no}'
+                }
+                
+        elif payment_method == 'alipay_wap':
+            result = alipay_service.create_wap_order(
+                out_trade_no=order_no,
+                total_amount=float(plan_info['price']),
+                subject=subject,
+                body=body
+            )
+            if result['success']:
+                payment_data = {
+                    'pay_url': result['pay_url'],
+                    'type': 'wap'
+                }
+            else:
+                logger.error(f"支付宝WAP下单失败: {result.get('msg')}")
+                payment_data = {
+                    'error': result.get('msg', '下单失败'),
+                    'mock': True
+                }
+                
+        elif payment_method == 'wechat':
+            result = wechat_pay_service.create_native_order(
+                out_trade_no=order_no,
+                total_amount=int(plan_info['price'] * 100),
+                body=subject,
+                attach=plan
+            )
+            if result['success']:
+                payment_data = {
+                    'code_url': result['code_url'],
+                    'type': 'qrcode'
+                }
+            else:
+                logger.error(f"微信下单失败: {result.get('msg')}")
+                payment_data = {
+                    'error': result.get('msg', '下单失败'),
+                    'mock': True,
+                    'code_url': f'weixin://wxpay/bizpayurl?pr={order_no}'
+                }
+                
+        elif payment_method == 'wechat_h5':
+            client_ip = request.remote_addr or '127.0.0.1'
+            result = wechat_pay_service.create_h5_order(
+                out_trade_no=order_no,
+                total_amount=int(plan_info['price'] * 100),
+                body=subject,
+                client_ip=client_ip,
+                attach=plan
+            )
+            if result['success']:
+                payment_data = {
+                    'mweb_url': result['mweb_url'],
+                    'type': 'h5'
+                }
+            else:
+                logger.error(f"微信H5下单失败: {result.get('msg')}")
+                payment_data = {
+                    'error': result.get('msg', '下单失败'),
+                    'mock': True
+                }
+    except Exception as e:
+        logger.error(f"创建支付订单异常: {e}")
         payment_data = {
-            'qr_code': f'https://qr.alipay.com/mock_{order_no}',
-            'pay_url': f'https://openapi.alipay.com/gateway.do?order={order_no}'
-        }
-    elif payment_method == 'wechat':
-        payment_data = {
-            'qr_code': f'weixin://wxpay/bizpayurl?pr=mock_{order_no}',
-            'pay_url': f'https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?order={order_no}'
+            'error': str(e),
+            'mock': True
         }
     
     return jsonify({
@@ -226,6 +308,12 @@ def get_order(order_no):
 def alipay_callback():
     data = request.form.to_dict()
     
+    logger.info(f"收到支付宝回调: {data}")
+    
+    if not alipay_service.verify_notify(data.copy()):
+        logger.error("支付宝回调验签失败")
+        return 'FAIL', 400
+    
     order_no = data.get('out_trade_no', '')
     trade_status = data.get('trade_status', '')
     
@@ -233,6 +321,7 @@ def alipay_callback():
     
     payment = session.query(Payment).filter_by(order_no=order_no).first()
     if not payment:
+        logger.error(f"订单不存在: {order_no}")
         return 'FAIL', 400
     
     if trade_status == 'TRADE_SUCCESS' or trade_status == 'TRADE_FINISHED':
@@ -240,6 +329,7 @@ def alipay_callback():
             payment.status = 'paid'
             payment.paid_at = datetime.utcnow()
             payment.payment_data = json.dumps(data)
+            payment.transaction_id = data.get('trade_no', '')
             
             user = session.query(User).filter_by(id=payment.user_id).first()
             if user:
@@ -259,48 +349,58 @@ def alipay_callback():
             session.commit()
             
             log_operation(payment.user_id, 'payment_success', f'Payment successful: {order_no}')
+            logger.info(f"支付成功: {order_no}")
     
     return 'SUCCESS', 200
 
 @payment_bp.route('/callback/wechat', methods=['POST'])
 def wechat_callback():
-    data = request.get_json()
+    xml_data = request.data.decode('utf-8')
     
-    order_no = data.get('out_trade_no', '')
-    result_code = data.get('result_code', '')
+    logger.info(f"收到微信回调: {xml_data}")
+    
+    result = wechat_pay_service.verify_notify(xml_data)
+    
+    if not result.get('success'):
+        logger.error(f"微信回调验签失败: {result.get('msg')}")
+        return '<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[验签失败]]></return_msg></xml>', 400
+    
+    order_no = result.get('out_trade_no', '')
     
     session = get_db_session()
     
     payment = session.query(Payment).filter_by(order_no=order_no).first()
     if not payment:
-        return jsonify({'code': 'FAIL', 'message': 'Order not found'}), 400
+        logger.error(f"订单不存在: {order_no}")
+        return '<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[订单不存在]]></return_msg></xml>', 400
     
-    if result_code == 'SUCCESS':
-        if payment.status == 'pending':
-            payment.status = 'paid'
-            payment.paid_at = datetime.utcnow()
-            payment.payment_data = json.dumps(data)
-            
-            user = session.query(User).filter_by(id=payment.user_id).first()
-            if user:
-                user.membership_level = payment.plan
-                user.membership_expire_at = datetime.utcnow() + timedelta(days=30 * payment.duration_months)
-            
-            subscription = UserSubscription(
-                user_id=payment.user_id,
-                plan=payment.plan,
-                status='active',
-                start_at=datetime.utcnow(),
-                end_at=datetime.utcnow() + timedelta(days=30 * payment.duration_months),
-                payment_id=payment.id
-            )
-            session.add(subscription)
-            
-            session.commit()
-            
-            log_operation(payment.user_id, 'payment_success', f'Payment successful: {order_no}')
+    if payment.status == 'pending':
+        payment.status = 'paid'
+        payment.paid_at = datetime.utcnow()
+        payment.payment_data = json.dumps(result)
+        payment.transaction_id = result.get('transaction_id', '')
+        
+        user = session.query(User).filter_by(id=payment.user_id).first()
+        if user:
+            user.membership_level = payment.plan
+            user.membership_expire_at = datetime.utcnow() + timedelta(days=30 * payment.duration_months)
+        
+        subscription = UserSubscription(
+            user_id=payment.user_id,
+            plan=payment.plan,
+            status='active',
+            start_at=datetime.utcnow(),
+            end_at=datetime.utcnow() + timedelta(days=30 * payment.duration_months),
+            payment_id=payment.id
+        )
+        session.add(subscription)
+        
+        session.commit()
+        
+        log_operation(payment.user_id, 'payment_success', f'Payment successful: {order_no}')
+        logger.info(f"微信支付成功: {order_no}")
     
-    return jsonify({'code': 'SUCCESS', 'message': 'OK'}), 200
+    return '<xml><return_code><![CDATA[SUCCESS]]></return_code><return_msg><![CDATA[OK]]></return_msg></xml>', 200
 
 @payment_bp.route('/mock-payment/<order_no>', methods=['POST'])
 @jwt_required
@@ -365,3 +465,74 @@ def cancel_subscription():
     log_operation(user.id, 'cancel_subscription', 'Cancelled auto-renew')
     
     return jsonify({'message': 'Auto-renew cancelled'}), 200
+
+@payment_bp.route('/check-status/<order_no>', methods=['GET'])
+@jwt_required
+def check_payment_status(order_no):
+    user = g.current_user
+    session = get_db_session()
+    
+    payment = session.query(Payment).filter_by(order_no=order_no, user_id=user.id).first()
+    if not payment:
+        return jsonify({'error': 'Order not found'}), 404
+    
+    if payment.status == 'pending':
+        if payment.payment_method in ['alipay', 'alipay_wap']:
+            result = alipay_service.query_order(order_no)
+            if result.get('success') and result.get('trade_status') in ['TRADE_SUCCESS', 'TRADE_FINISHED']:
+                payment.status = 'paid'
+                payment.paid_at = datetime.utcnow()
+                payment.transaction_id = result.get('trade_no', '')
+                payment.payment_data = json.dumps(result)
+                
+                db_user = session.query(User).filter_by(id=user.id).first()
+                if db_user:
+                    db_user.membership_level = payment.plan
+                    db_user.membership_expire_at = datetime.utcnow() + timedelta(days=30 * payment.duration_months)
+                
+                subscription = UserSubscription(
+                    user_id=user.id,
+                    plan=payment.plan,
+                    status='active',
+                    start_at=datetime.utcnow(),
+                    end_at=datetime.utcnow() + timedelta(days=30 * payment.duration_months),
+                    payment_id=payment.id
+                )
+                session.add(subscription)
+                session.commit()
+                
+                log_operation(user.id, 'payment_success', f'Payment successful: {order_no}')
+                
+        elif payment.payment_method in ['wechat', 'wechat_h5']:
+            result = wechat_pay_service.query_order(order_no)
+            if result.get('success') and result.get('trade_state') == 'SUCCESS':
+                payment.status = 'paid'
+                payment.paid_at = datetime.utcnow()
+                payment.transaction_id = result.get('transaction_id', '')
+                payment.payment_data = json.dumps(result)
+                
+                db_user = session.query(User).filter_by(id=user.id).first()
+                if db_user:
+                    db_user.membership_level = payment.plan
+                    db_user.membership_expire_at = datetime.utcnow() + timedelta(days=30 * payment.duration_months)
+                
+                subscription = UserSubscription(
+                    user_id=user.id,
+                    plan=payment.plan,
+                    status='active',
+                    start_at=datetime.utcnow(),
+                    end_at=datetime.utcnow() + timedelta(days=30 * payment.duration_months),
+                    payment_id=payment.id
+                )
+                session.add(subscription)
+                session.commit()
+                
+                log_operation(user.id, 'payment_success', f'Payment successful: {order_no}')
+    
+    return jsonify({
+        'order_no': payment.order_no,
+        'status': payment.status,
+        'amount': payment.amount,
+        'plan': payment.plan,
+        'paid_at': payment.paid_at.isoformat() if payment.paid_at else None
+    }), 200

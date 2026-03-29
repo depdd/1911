@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Typography, Card, Form, Select, Switch, Button, Row, Col, message, Spin } from 'antd'
+import { Typography, Card, Form, Select, Switch, Button, Row, Col, Spin, App } from 'antd'
 import {
   UserOutlined,
   SkinOutlined,
@@ -132,6 +132,7 @@ const defaultSettings: SettingsData = {
 }
 
 const Settings: React.FC = () => {
+  const { message } = App.useApp()
   const [form] = Form.useForm()
   const [isLoading, setIsLoading] = useState(false)
   const [showSaveIndicator, setShowSaveIndicator] = useState(false)

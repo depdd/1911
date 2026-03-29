@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Modal, message, Tabs, Spin, InputNumber, Select, Input, Popconfirm, Button } from 'antd'
+import { Modal, Tabs, Spin, InputNumber, Select, Input, Popconfirm, Button, App } from 'antd'
 import styled from 'styled-components'
 import { 
   RobotOutlined, PlayCircleOutlined, PauseCircleOutlined, 
@@ -449,6 +449,7 @@ const ModalForm = styled.div`
 `
 
 const StrategyStore: React.FC = () => {
+  const { message } = App.useApp()
   const [templates, setTemplates] = useState<StrategyTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [createModalVisible, setCreateModalVisible] = useState(false)
@@ -456,6 +457,7 @@ const StrategyStore: React.FC = () => {
   const [logModalVisible, setLogModalVisible] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<StrategyTemplate | null>(null)
   const [selectedStrategy, setSelectedStrategy] = useState<UserStrategy | null>(null)
+  const [selectedMT5AccountId, setSelectedMT5AccountId] = useState<number | null>(null)
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [strategyName, setStrategyName] = useState('')
   const [actionLoading, setActionLoading] = useState<string | number | null>(null)
@@ -464,11 +466,14 @@ const StrategyStore: React.FC = () => {
   
   const { theme } = useTheme()
   const { t } = useLanguage()
-  const { strategies, refreshStrategies, mt5Accounts, subscription } = useUser()
+  const { strategies, refreshStrategies, mt5Accounts, subscription, createStrategy, startStrategy } = useUser()
 
   useEffect(() => {
     loadData()
-    const interval = setInterval(refreshStrategies, 5000)
+    const interval = setInterval(() => {
+      refreshStrategies()
+      loadTemplates()
+    }, 5000)
     return () => clearInterval(interval)
   }, [])
 
@@ -523,28 +528,34 @@ const StrategyStore: React.FC = () => {
     })
     setFormData(defaultParams)
     setStrategyName(`${template.name} - ${new Date().toLocaleDateString()}`)
+    setSelectedMT5AccountId(mt5Accounts[0]?.id || null)
     setCreateModalVisible(true)
   }
 
   const handleCreateStrategy = async () => {
-    if (!selectedTemplate || !strategyName) {
+    if (!selectedTemplate || !strategyName || !selectedMT5AccountId) {
       message.error(t('common.error'))
       return
     }
 
     setActionLoading('create')
-    const response = await strategyService.createStrategy({
+    const result = await createStrategy({
+      strategy_name: strategyName,
       template_id: selectedTemplate.id,
-      name: strategyName,
+      mt5_account_id: selectedMT5AccountId,
       parameters: formData
     })
 
-    if (response.success) {
-      message.success(t('strategies.deploySuccess'))
+    if (result.success && result.data) {
+      const startResult = await startStrategy(result.data.id)
+      if (startResult.success) {
+        message.success(t('strategies.deploySuccess'))
+      } else {
+        message.warning(t('strategies.deploySuccess') + ' - ' + (startResult.error || t('strategies.startFailed')))
+      }
       setCreateModalVisible(false)
-      refreshStrategies()
     } else {
-      message.error(response.error || t('strategies.deployFailed'))
+      message.error(result.error || t('strategies.deployFailed'))
     }
     setActionLoading(null)
   }
@@ -896,6 +907,21 @@ const StrategyStore: React.FC = () => {
                 onChange={(e) => setStrategyName(e.target.value)}
                 placeholder={t('strategies.strategyName')}
               />
+            </div>
+            <div className="form-item">
+              <label>{t('strategies.selectMT5Account')}</label>
+              <Select
+                value={selectedMT5AccountId}
+                onChange={(value) => setSelectedMT5AccountId(value)}
+                style={{ width: '100%' }}
+                placeholder={t('strategies.selectMT5Account')}
+              >
+                {mt5Accounts.map(acc => (
+                  <Select.Option key={acc.id} value={acc.id}>
+                    {acc.account_name} ({acc.login})
+                  </Select.Option>
+                ))}
+              </Select>
             </div>
             {selectedTemplate.parameters_schema.map(param => (
               <div className="form-item" key={param.name}>

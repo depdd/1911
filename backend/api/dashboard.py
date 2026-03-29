@@ -6,7 +6,11 @@ import asyncio
 
 from models import DatabaseManager, model_to_dict
 from mt5_client import mt5_client
-from strategies.ma_cross import ma_cross_manager
+
+try:
+    from strategies.ma_cross import ma_cross_manager
+except ImportError:
+    ma_cross_manager = None
 
 dashboard_bp = Blueprint('dashboard', __name__)
 

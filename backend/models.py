@@ -25,6 +25,7 @@ class User(Base):
     membership_expire_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
     last_login_at = Column(DateTime, nullable=True)
     last_login_ip = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=func.now())
@@ -35,6 +36,7 @@ class User(Base):
     subscriptions = relationship("UserSubscription", back_populates="user", cascade="all, delete-orphan")
     payments = relationship("Payment", back_populates="user", cascade="all, delete-orphan")
     operation_logs = relationship("UserOperationLog", back_populates="user", cascade="all, delete-orphan")
+    strategies = relationship("UserStrategy", back_populates="user", cascade="all, delete-orphan")
     settings = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 class UserMT5Account(Base):
@@ -94,6 +96,7 @@ class Payment(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
     order_no = Column(String(64), unique=True, nullable=False, index=True)
+    transaction_id = Column(String(64), nullable=True, index=True)
     payment_method = Column(String(20), nullable=False)
     amount = Column(Float, nullable=False)
     currency = Column(String(10), default='CNY')
@@ -127,6 +130,7 @@ class UserStrategy(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
     mt5_account = relationship("UserMT5Account", back_populates="strategies")
+    user = relationship("User", back_populates="strategies")
 
 class UserOperationLog(Base):
     __tablename__ = 'user_operation_logs'
@@ -140,6 +144,24 @@ class UserOperationLog(Base):
     created_at = Column(DateTime, default=func.now())
     
     user = relationship("User", back_populates="operation_logs")
+
+class StrategyTemplate(Base):
+    __tablename__ = 'strategy_templates'
+    
+    id = Column(Integer, primary_key=True)
+    template_id = Column(String(50), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(50), nullable=True)
+    risk_level = Column(String(20), default='medium')
+    default_parameters = Column(Text)
+    parameters_schema = Column(Text)
+    performance = Column(Text)
+    is_active = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 class Account(Base):
     __tablename__ = 'accounts'
@@ -339,10 +361,11 @@ class DatabaseManager:
     def __init__(self, database_url: str):
         self.engine = create_engine(
             database_url,
-            pool_size=20,
-            max_overflow=10,
-            pool_timeout=30,
-            pool_recycle=3600,
+            pool_size=50,
+            max_overflow=20,
+            pool_timeout=10,
+            pool_recycle=1800,
+            pool_pre_ping=True,
             echo=False
         )
         Base.metadata.create_all(self.engine)

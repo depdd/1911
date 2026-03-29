@@ -13,6 +13,7 @@
   "dependencies": {
     "@ant-design/icons": "^5.2.0",
     "@types/lodash": "^4.14.195",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@types/styled-components": "^5.1.26",
@@ -27,6 +28,7 @@
     "lightweight-charts": "^4.0.0",
     "lodash": "^4.17.21",
     "msgpack-lite": "^0.1.26",
+    "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-i18next": "^13.0.0",

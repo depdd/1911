@@ -85,43 +85,22 @@ async def get_historical_data(symbol: str, timeframe: str):
         df = await mt5_client.get_historical_data(symbol, timeframe, count)
         
         if df is not None:
-            # 转换为JSON格式
             data = df.to_dict('records')
             
-            # 转换时间格式
             for record in data:
                 if 'time' in record:
-                    record['time'] = record['time'].isoformat()
-            
-            # 计算技术指标
-            enhanced_data = []
-            for i, record in enumerate(data):
-                enhanced_record = {
-                    **record,
-                    'symbol': symbol,
-                    'timeframe': timeframe
-                }
-                
-                # 添加移动平均线（简化计算）
-                if i >= 20:
-                    ma_20 = sum(r['close'] for r in data[i-19:i+1]) / 20
-                    enhanced_record['ma_20'] = round(ma_20, 5)
-                
-                if i >= 50:
-                    ma_50 = sum(r['close'] for r in data[i-49:i+1]) / 50
-                    enhanced_record['ma_50'] = round(ma_50, 5)
-                
-                enhanced_data.append(enhanced_record)
+                    if hasattr(record['time'], 'timestamp'):
+                        record['time'] = int(record['time'].timestamp())
+                    else:
+                        record['time'] = int(record['time'])
             
             return jsonify({
                 'success': True,
                 'data': {
                     'symbol': symbol,
                     'timeframe': timeframe,
-                    'data': enhanced_data,
-                    'count': len(enhanced_data),
-                    'start_time': enhanced_data[0]['time'] if enhanced_data else None,
-                    'end_time': enhanced_data[-1]['time'] if enhanced_data else None
+                    'data': data,
+                    'count': len(data)
                 }
             })
         else:

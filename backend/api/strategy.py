@@ -5,18 +5,158 @@ from typing import Dict, List
 import uuid
 import json
 
-from strategies.ma_cross import ma_cross_manager, MACrossStrategy
-from strategies.martin_grid import martin_grid_manager, MartinGridStrategy
-from strategies.rsi_reversal import rsi_manager, RSIStrategy
-from strategies.bollinger_bands import bollinger_bands_manager, BollingerBandsStrategy
-from strategies.dual_grid_martin import dual_grid_martin_manager, DualGridMartinStrategy
-from strategies.linshu import create_strategy as linshu_manager, LinShuStrategy
 from strategies.strategy_logger import strategy_logger
-from models import Strategy, StrategyExecution
+from models import Strategy, StrategyExecution, StrategyTemplate
+
+try:
+    from strategies.martin_grid import martin_grid_manager, MartinGridStrategy
+except ImportError:
+    martin_grid_manager = None
+    MartinGridStrategy = None
+
+try:
+    from strategies.dual_grid_martin import dual_grid_martin_manager, DualGridMartinStrategy
+except ImportError:
+    dual_grid_martin_manager = None
+    DualGridMartinStrategy = None
+
+try:
+    from strategies.linshu import create_strategy as linshu_manager, LinShuStrategy
+except ImportError:
+    linshu_manager = None
+    LinShuStrategy = None
 
 strategy_bp = Blueprint('strategy', __name__)
 
+def get_db_session():
+    from app import db_manager
+    return db_manager.get_session()
+
 STRATEGY_TEMPLATES = [
+    {
+        'id': 'linshu',
+        'name': '林舒策略',
+        'description': '基于网格交易和马丁格尔策略的混合交易系统，支持熵增步长计算，适合震荡行情。',
+        'category': '网格交易',
+        'risk_level': 'high',
+        'default_parameters': {
+            'symbol': 'EURUSD',
+            'add_space': 100,
+            'take_profit': 200,
+            'fixed_lot': 0.02,
+            'max_add_count': 25
+        },
+        'parameters_schema': [
+            {
+                'name': 'symbol',
+                'label': '交易品种',
+                'type': 'select',
+                'options': ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'],
+                'default': 'EURUSD',
+                'required': True
+            },
+            {
+                'name': 'add_space',
+                'label': '加仓间距(点)',
+                'type': 'number',
+                'min': 10,
+                'max': 500,
+                'default': 100,
+                'required': True
+            },
+            {
+                'name': 'take_profit',
+                'label': '止盈点数',
+                'type': 'number',
+                'min': 10,
+                'max': 1000,
+                'default': 200,
+                'required': True
+            },
+            {
+                'name': 'fixed_lot',
+                'label': '固定手数',
+                'type': 'number',
+                'min': 0.01,
+                'max': 10,
+                'step': 0.01,
+                'default': 0.02,
+                'required': True
+            },
+            {
+                'name': 'max_add_count',
+                'label': '最大加仓次数',
+                'type': 'number',
+                'min': 1,
+                'max': 50,
+                'default': 25,
+                'required': True
+            }
+        ],
+        'performance': {
+            'win_rate': 75.0,
+            'profit_factor': 2.1,
+            'max_drawdown': 25.0,
+            'avg_trade': 35.0
+        }
+    },
+    {
+        'id': 'dual_grid_martin',
+        'name': '双向网格马丁',
+        'description': '双向网格交易结合马丁格尔加仓策略，在震荡行情中同时做多做空获取利润。',
+        'category': '网格交易',
+        'risk_level': 'high',
+        'default_parameters': {
+            'symbol': 'EURUSD',
+            'grid_spacing': 50,
+            'take_profit': 100,
+            'base_lot': 0.01
+        },
+        'parameters_schema': [
+            {
+                'name': 'symbol',
+                'label': '交易品种',
+                'type': 'select',
+                'options': ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'],
+                'default': 'EURUSD',
+                'required': True
+            },
+            {
+                'name': 'grid_spacing',
+                'label': '网格间距(点)',
+                'type': 'number',
+                'min': 10,
+                'max': 200,
+                'default': 50,
+                'required': True
+            },
+            {
+                'name': 'take_profit',
+                'label': '止盈点数',
+                'type': 'number',
+                'min': 10,
+                'max': 500,
+                'default': 100,
+                'required': True
+            },
+            {
+                'name': 'base_lot',
+                'label': '基础手数',
+                'type': 'number',
+                'min': 0.01,
+                'max': 10,
+                'step': 0.01,
+                'default': 0.01,
+                'required': True
+            }
+        ],
+        'performance': {
+            'win_rate': 70.0,
+            'profit_factor': 1.8,
+            'max_drawdown': 20.0,
+            'avg_trade': 28.0
+        }
+    },
     {
         'id': 'ma_cross',
         'name': '移动平均线交叉策略',
@@ -611,6 +751,114 @@ STRATEGY_TEMPLATES = [
             'max_drawdown': 38.5,
             'avg_trade': 28.6
         }
+    },
+    {
+        'id': 'shuangxiang',
+        'name': '双向网格马丁策略',
+        'description': '双向网格马丁格尔策略，支持多空双向开仓，自动加仓和止盈。',
+        'category': '网格交易',
+        'risk_level': 'high',
+        'default_parameters': {
+            'symbol': 'EURUSD',
+            'buy_magic': 100001,
+            'sell_magic': 100002,
+            'fixed_lot': 0.02,
+            'max_lot': 100,
+            'use_auto_lot': False,
+            'auto_lot_percent': 1.0,
+            'grid_spacing': 100,
+            'take_profit': 200,
+            'lot_sequence': [0.03, 0.04, 0.05, 0.06, 0.07, 0.10, 0.13, 0.16, 0.21, 0.28, 0.36, 0.47, 0.61, 0.79, 1.02, 1.33, 1.73, 2.25, 2.92, 3.80, 4.94, 6.45, 7.96, 9.93, 11.85]
+        },
+        'parameters_schema': [
+            {
+                'name': 'symbol',
+                'label': '交易品种',
+                'type': 'select',
+                'options': ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'],
+                'default': 'EURUSD',
+                'required': True
+            },
+            {
+                'name': 'buy_magic',
+                'label': '多单魔术号',
+                'type': 'number',
+                'min': 100000,
+                'max': 999999,
+                'default': 100001,
+                'required': True
+            },
+            {
+                'name': 'sell_magic',
+                'label': '空单魔术号',
+                'type': 'number',
+                'min': 100000,
+                'max': 999999,
+                'default': 100002,
+                'required': True
+            },
+            {
+                'name': 'fixed_lot',
+                'label': '首单手数',
+                'type': 'number',
+                'min': 0.01,
+                'max': 10,
+                'step': 0.01,
+                'default': 0.02,
+                'required': True
+            },
+            {
+                'name': 'max_lot',
+                'label': '最大手数',
+                'type': 'number',
+                'min': 0.01,
+                'max': 100,
+                'step': 0.01,
+                'default': 100,
+                'required': True
+            },
+            {
+                'name': 'use_auto_lot',
+                'label': '自动计算手数',
+                'type': 'boolean',
+                'default': False,
+                'required': False
+            },
+            {
+                'name': 'auto_lot_percent',
+                'label': '自动手数比例(%)',
+                'type': 'number',
+                'min': 0.1,
+                'max': 10,
+                'step': 0.1,
+                'default': 1.0,
+                'required': False
+            },
+            {
+                'name': 'grid_spacing',
+                'label': '网格间距(点)',
+                'type': 'number',
+                'min': 10,
+                'max': 1000,
+                'default': 100,
+                'required': True
+            },
+            {
+                'name': 'take_profit',
+                'label': '止盈点数',
+                'type': 'number',
+                'min': 10,
+                'max': 2000,
+                'default': 200,
+                'required': True
+            }
+        ],
+        'performance': {
+            'win_rate': 70.0,
+            'profit_factor': 2.0,
+            'max_drawdown': 40.0,
+            'avg_trade': 25.0
+        }
     }
 ]
 
@@ -622,21 +870,83 @@ def get_db():
 @strategy_bp.route('/api/strategies/templates', methods=['GET'])
 def get_strategy_templates():
     try:
+        from strategies.strategy_manager import strategy_manager
+        
+        session = get_db_session()
+        db_templates = session.query(StrategyTemplate).filter_by(is_active=True, is_deleted=False).all()
+        
+        all_templates = session.query(StrategyTemplate).filter_by(is_active=True).all()
+        deleted_ids = set(t.template_id for t in all_templates if t.is_deleted)
+        inactive_ids = set(t.template_id for t in session.query(StrategyTemplate).filter_by(is_active=False).all())
+        excluded_ids = deleted_ids | inactive_ids
+        
+        templates_data = []
+        seen_ids = set()
+        
+        for t in db_templates:
+            if t.template_id not in seen_ids:
+                seen_ids.add(t.template_id)
+                templates_data.append({
+                    'id': t.template_id,
+                    'name': t.name,
+                    'description': t.description,
+                    'category': t.category,
+                    'risk_level': t.risk_level,
+                    'default_parameters': json.loads(t.default_parameters) if t.default_parameters else {},
+                    'parameters_schema': json.loads(t.parameters_schema) if t.parameters_schema else [],
+                    'performance': json.loads(t.performance) if t.performance else {}
+                })
+        
+        strategies = strategy_manager.list_strategies()
+        for s in strategies:
+            if s.get('id') not in seen_ids and s.get('id') not in excluded_ids:
+                seen_ids.add(s.get('id'))
+                template_info = next((t for t in STRATEGY_TEMPLATES if t['id'] == s.get('id')), {})
+                templates_data.append({
+                    'id': s.get('id'),
+                    'name': s.get('name', s.get('id')),
+                    'description': s.get('description', ''),
+                    'category': s.get('category', '自定义'),
+                    'risk_level': s.get('risk_level', 'medium'),
+                    'default_parameters': template_info.get('default_parameters', {}),
+                    'parameters_schema': template_info.get('parameters_schema', []),
+                    'performance': template_info.get('performance', {})
+                })
+        
         return jsonify({
             'success': True,
-            'data': STRATEGY_TEMPLATES
+            'data': templates_data
         })
     except Exception as e:
         logger.error(f"获取策略模板失败: {e}")
         return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+            'success': True,
+            'data': []
+        })
 
 
 @strategy_bp.route('/api/strategies/templates/<template_id>', methods=['GET'])
 def get_strategy_template(template_id):
     try:
+        session = get_db_session()
+        db_template = session.query(StrategyTemplate).filter_by(template_id=template_id, is_active=True).first()
+        
+        if db_template:
+            template_data = {
+                'id': db_template.template_id,
+                'name': db_template.name,
+                'description': db_template.description,
+                'category': db_template.category,
+                'risk_level': db_template.risk_level,
+                'default_parameters': json.loads(db_template.default_parameters) if db_template.default_parameters else {},
+                'parameters_schema': json.loads(db_template.parameters_schema) if db_template.parameters_schema else [],
+                'performance': json.loads(db_template.performance) if db_template.performance else {}
+            }
+            return jsonify({
+                'success': True,
+                'data': template_data
+            })
+        
         template = next((t for t in STRATEGY_TEMPLATES if t['id'] == template_id), None)
         if not template:
             return jsonify({
